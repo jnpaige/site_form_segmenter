@@ -68,7 +68,12 @@ def _post(payload: dict, base_url: str, timeout: float, label: str) -> str | Non
         print(f"  [ERROR] {label}: timed out")
         return None
     except httpx.HTTPStatusError as e:
-        print(f"  [ERROR] {label}: {e}")
+        body = ""
+        try:
+            body = e.response.text[:300]
+        except Exception:
+            pass
+        print(f"  [ERROR] {label}: {e}" + (f"\n          {body}" if body else ""))
         return None
 
     elapsed = time.monotonic() - t0

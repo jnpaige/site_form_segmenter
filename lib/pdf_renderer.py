@@ -1,9 +1,14 @@
-"""Render PDF pages to base64-encoded JPEG images for vision model input.
+"""Render PDF pages for vision model input.
+
+Two functions:
+  render_pages_to_contact_sheet — all pages tiled in a grid, single JPEG (preferred)
+  render_pages_to_images        — one JPEG per page, returned as a dict
 
 Requires PyMuPDF (already in pyproject.toml). If not installed, run:
   uv sync
 """
 import base64
+import math
 from pathlib import Path
 
 
@@ -56,3 +61,74 @@ def render_pages_to_images(
 
     doc.close()
     return images
+
+
+def render_pages_to_contact_sheet(
+    pdf_path: Path,
+    thumb_width: int = 240,
+    cols: int = 3,
+) -> str:
+    """Render all PDF pages as a single tiled contact-sheet JPEG.
+
+    Pages are arranged in a grid (left-to-right, top-to-bottom). Each
+    thumbnail is labeled with its 0-indexed page number in red so the vision
+    model can reference specific pages in its JSON output.
+
+    Returns a single base64-encoded JPEG string. Sending one image per
+    request is more reliable with Ollama's vision endpoint than sending
+    multiple images.
+
+    Raises ImportError if PyMuPDF is not installed.
+    """
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        try:
+            import fitz
+        except ImportError:
+            raise ImportError(
+                "PyMuPDF is required for vision mode.\n"
+                "It is already declared in pyproject.toml — just run:\n"
+                "  uv sync\n"
+                "or manually: pip install PyMuPDF"
+            )
+
+    src_doc = fitz.open(str(pdf_path))
+    n = len(src_doc)
+    if n == 0:
+        src_doc.close()
+        return ""
+
+    # Derive thumbnail height from the first page's aspect ratio
+    ref_rect = src_doc[0].rect
+    thumb_h = round(thumb_width * ref_rect.height / ref_rect.width)
+
+    rows      = math.ceil(n / cols)
+    total_w   = float(cols * thumb_width)
+    total_h   = float(rows * thumb_h)
+
+    # Build a single-page PDF to composite into
+    out_doc  = fitz.open()
+    out_page = out_doc.new_page(width=total_w, height=total_h)
+
+    for i in range(n):
+        row  = i // cols
+        col  = i % cols
+        rect = fitz.Rect(
+            col * thumb_width,       row * thumb_h,
+            (col + 1) * thumb_width, (row + 1) * thumb_h,
+        )
+        out_page.show_pdf_page(rect, src_doc, i)
+        out_page.insert_text(
+            fitz.Point(rect.x0 + 4, rect.y0 + 14),
+            f"p{i}",
+            fontsize=11,
+            color=(0.9, 0.1, 0.1),
+        )
+
+    src_doc.close()
+
+    pix  = out_page.get_pixmap(matrix=fitz.Matrix(1, 1))
+    jpeg = pix.tobytes("jpeg")
+    out_doc.close()
+    return base64.b64encode(jpeg).decode("utf-8")

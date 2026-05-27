@@ -19,7 +19,7 @@ Dividing segmentation into focused passes lets a small model handle each one rel
 
 ## Two modes
 
-**`vision` (default):** `llama3.2-vision:11b` receives rendered images of all PDF pages for Pass 1. It can see form layouts, logos, headers, and visual structure changes that OCR text may partially lose. Passes 2–4 use `llama3.1:8b` on the existing OCR text. Requires `PyMuPDF` and the PDF file alongside `text_docling.txt`.
+**`vision` (default):** `llama3.2-vision:11b` receives a single contact sheet image for Pass 1 — all PDF pages tiled in a grid (left-to-right, top-to-bottom) with each thumbnail labeled with its page number in red. The vision model sees the full visual layout of the document at once and returns investigation boundaries by page number. Passes 2–4 use `llama3.1:8b` on the existing OCR text. Requires `PyMuPDF` and the PDF file alongside `text_docling.txt`.
 
 **`text`:** `llama3.1:8b` runs all 4 passes on OCR text only. No PDF rendering, no PyMuPDF. Faster, lower memory. Good baseline and useful when PDFs are not available.
 
@@ -191,9 +191,8 @@ trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'   # Louisiana format; adjust for other s
 
 mode: 'vision'           # 'vision' or 'text'
 page_truncation_chars: 500   # chars of OCR text per page shown in text passes
-pdf_render_dpi:        96    # render resolution for vision pass 1
-                             # images are also hard-capped at 1024px on the longest edge,
-                             # so raising DPI beyond ~150 has no effect on payload size
+pdf_thumb_width:       240   # width in pixels of each page thumbnail in the contact sheet grid;
+                             # 3 columns × 240px = 720px wide total image sent to the vision model
 
 base_url:        'http://localhost:11434'
 vision_model:    'llama3.2-vision:11b'
@@ -206,13 +205,11 @@ timeout_seconds: 1800
 
 ### `500 Internal Server Error` on vision pass 1
 
-Ollama returns a 500 when the image payload is too large for the model to process. The script renders each page as a JPEG and sends all pages in a single request — more pages or higher DPI means a larger payload.
+Ollama's llama3.2-vision endpoint returns a 500 when multiple images are passed in a single request. This tool avoids that by always sending exactly one image: a contact sheet that tiles all pages into a single JPEG grid. If you see a 500 error:
 
-The renderer caps images at 1024px on the longest edge regardless of DPI, which keeps payloads manageable for typical site forms (3–15 pages). If you still see 500 errors:
-
-- Lower `pdf_render_dpi` in `config.yaml` (try `72`)
-- Check how many pages the failing site has — `[render] 16VN1451: rendering 6 pages` is printed before the call
-- Run that site in text mode as a workaround: `uv run python segmenter.py --trinomial 16VN1451 --mode text`
+- Check that Ollama is running and the model is fully loaded: `ollama list`
+- Try the site in text mode to isolate whether the issue is vision-specific: `uv run python segmenter.py --trinomial 16VN1451 --mode text`
+- If the contact sheet image is very large (many-page PDF), reduce `pdf_thumb_width` in `config.yaml` (try `160` or `120`) to shrink the composite image
 
 The script logs `[warn] pass1 failed — single segment fallback` and continues rather than crashing; a 500 on Pass 1 means the whole document is treated as one investigation, which is safe but loses boundary detection for multi-investigation PDFs.
 
@@ -240,6 +237,26 @@ All prompts live in `segment_types/`. Each pass has its own file so prompts can 
 
 Pass 3 receives the Pass 2 result injected via `{form_pages}` in the prompt template so the model knows which page to exclude.
 
+## Recommended models
+
+The default `llama3.1:8b` works but struggles with clean JSON output on ambiguous documents. Better options for `text_model` (all passes in text mode, passes 2–4 in vision mode):
+
+| Model | Size | Notes |
+|---|---|---|
+| `qwen2.5:14b` | ~9 GB | Best JSON instruction-following at this size; recommended upgrade from 8b |
+| `phi4:14b` | ~9 GB | Strong reasoning per parameter; good at document structure tasks |
+| `deepseek-r1:14b` | ~9 GB | Slower (chain-of-thought), but more reliable on ambiguous boundary cases |
+| `qwen2.5:32b` | ~20 GB | Noticeably better than 14b at recognizing multi-investigation structure shifts |
+
+```powershell
+ollama pull qwen2.5:14b
+```
+
+Then set in `config.yaml`:
+```yaml
+text_model: 'qwen2.5:14b'
+```
+
 ## Relationship to site_coder
 
 `site_form_segmenter` is upstream of `site_coder`. It focuses entirely on segmentation quality and produces a page map that can be used to route coding calls to the right pages. `site_coder` currently runs its own internal segmentation as part of the coding pipeline; the intent is that a verified segmentation map from this tool can eventually replace that step, ensuring coding always works from correctly identified pages.
@@ -254,7 +271,7 @@ site_form_segmenter/
   lib/
     grouper.py           finds trinomial dirs; returns txt path + pdf path
     page_parser.py       splits text_docling.txt on === Page N === markers
-    pdf_renderer.py      renders PDF pages to base64 JPEG via PyMuPDF
+    pdf_renderer.py      renders all PDF pages as a single contact sheet JPEG via PyMuPDF
     ollama_client.py     Ollama REST wrapper: text + vision, token stats
     reporter.py          writes segmentation_map.md and segments.csv
   segment_types/

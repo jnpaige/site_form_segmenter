@@ -14,8 +14,6 @@ Clues that a new investigation site form starts:
 - A new author and/or date of a project appears.
 - A structured form layout restarts
 
-WHAT YOU ARE SEEING:
-Below is a truncated preview of each page's OCR text (first ~500 characters). Use both the page content and the page sequence to identify boundaries.
 
 YOUR TASK:
 Identify each distinct site form in this document, each of which was performed in a different year, and often reported by different authors. For each, return the contiguous range of pages that belong to it.

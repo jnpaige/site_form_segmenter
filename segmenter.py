@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent / "lib"))
 
 from grouper       import group_by_trinomial
 from page_parser   import parse_pages, build_page_preview
-from pdf_renderer  import render_pages_to_images
+from pdf_renderer  import render_pages_to_contact_sheet
 from ollama_client import extract_json, extract_json_vision, get_stats
 from reporter      import append_segments_csv, append_segmentation_map
 
@@ -84,7 +84,7 @@ def _run_id() -> str:
         ).decode().strip()
     except Exception:
         sha = "nogit"
-    return f"{datetime.now().strftime('%Y%m%d_%H')}_{sha}"
+    return f"{datetime.now().strftime('%Y%m%d_%H%M')}_{sha}"
 
 
 def _slug(s: str) -> str:
@@ -109,7 +109,7 @@ def main():
         print(_PYMUPDF_HINT.format(python=sys.executable))
         sys.exit(1)
     page_trunc   = cfg.get("page_truncation_chars", 500)
-    render_dpi   = cfg.get("pdf_render_dpi", 150)
+    thumb_width  = cfg.get("pdf_thumb_width", 240)
     base_url     = cfg["base_url"]
     text_model   = cfg["text_model"]
     vision_model = cfg.get("vision_model", "llama3.2-vision:11b")
@@ -172,23 +172,23 @@ def main():
             print(f"  [warn] {trinomial}: no page markers in {txt_path.name}")
             continue
 
-        page_images: dict[int, str] = {}
+        contact_sheet: str = ""
         effective_mode = mode
         if mode == "vision":
             if pdf_path is None:
                 print(f"  [warn] {trinomial}: no PDF found — falling back to text mode for pass 1")
                 effective_mode = "text"
             else:
-                print(f"  [render] {trinomial}: rendering {len(pages)} pages at {render_dpi} dpi")
+                print(f"  [render] {trinomial}: building contact sheet ({len(pages)} pages)")
                 try:
-                    page_images = render_pages_to_images(pdf_path, dpi=render_dpi)
+                    contact_sheet = render_pages_to_contact_sheet(pdf_path, thumb_width=thumb_width)
                 except ImportError as e:
                     print(f"  [error] {e}")
                     print(f"  [warn] falling back to text mode for pass 1")
                     effective_mode = "text"
 
         segments = _segment_site_form(
-            trinomial, pages, page_images,
+            trinomial, pages, contact_sheet,
             ollama_cfg, seg_types_dir, page_trunc, effective_mode,
         )
         if not segments:
@@ -233,7 +233,7 @@ def main():
 def _segment_site_form(
     trinomial: str,
     pages: dict[int, str],
-    page_images: dict[int, str],
+    contact_sheet: str,
     ollama_cfg: dict,
     seg_types_dir: Path,
     page_trunc: int,
@@ -245,21 +245,21 @@ def _segment_site_form(
     temp         = ollama_cfg["temperature"]
     timeout      = float(ollama_cfg["timeout"])
     full_preview = build_page_preview(pages, max_chars=page_trunc)
+    page_nums    = sorted(pages.keys())
 
     # --- Pass 1: investigation boundaries ---
-    if mode == "vision" and page_images:
-        p1_prompt    = (seg_types_dir / "site_form_pass1_vision.txt").read_text(encoding="utf-8").strip()
-        sorted_nums  = sorted(page_images.keys())
-        images_b64   = [page_images[n] for n in sorted_nums]
+    if mode == "vision" and contact_sheet:
+        p1_prompt = (seg_types_dir / "site_form_pass1_vision.txt").read_text(encoding="utf-8").strip()
         investigations = extract_json_vision(
             system_prompt=p1_prompt + "\n\nReturn ONLY a JSON array. No other text.",
             user_content=(
                 f"DOCUMENT: {trinomial}\n\n"
-                f"The {len(images_b64)} images below are PDF pages in order, "
-                f"page {sorted_nums[0]} through page {sorted_nums[-1]}.\n\n"
+                f"The image is a contact sheet of all {len(page_nums)} pages "
+                f"(p{page_nums[0]}–p{page_nums[-1]}), arranged left-to-right then "
+                f"top-to-bottom. Each thumbnail is labeled with its page number in red.\n\n"
                 "Identify each distinct site investigation (site form) in this document."
             ),
-            images=images_b64,
+            images=[contact_sheet],
             model=vision_model,
             base_url=base_url, temperature=temp, timeout=timeout,
             label=f"seg-p1-vision:{trinomial}",
