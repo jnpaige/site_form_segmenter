@@ -19,9 +19,9 @@ Dividing segmentation into focused passes lets a small model handle each one rel
 
 ## Two modes
 
-**`vision` (default):** `llama3.2-vision:11b` receives rendered images of all PDF pages for Pass 1. It can see form layouts, logos, headers, and visual structure changes that OCR text may partially lose. Passes 2–4 use `llama3.1:8b` on the existing OCR text. Requires `pymupdf` and the PDF file alongside `text_docling.txt`.
+**`vision` (default):** `llama3.2-vision:11b` receives rendered images of all PDF pages for Pass 1. It can see form layouts, logos, headers, and visual structure changes that OCR text may partially lose. Passes 2–4 use `llama3.1:8b` on the existing OCR text. Requires `PyMuPDF` and the PDF file alongside `text_docling.txt`.
 
-**`text`:** `llama3.1:8b` runs all 4 passes on OCR text only. No PDF rendering, no pymupdf. Faster, lower memory, no extra dependency. Good baseline and useful when PDFs are not available.
+**`text`:** `llama3.1:8b` runs all 4 passes on OCR text only. No PDF rendering, no PyMuPDF. Faster, lower memory. Good baseline and useful when PDFs are not available.
 
 If `vision` mode is selected but no PDF is found in a site directory, that site automatically falls back to text mode for Pass 1.
 
@@ -47,7 +47,7 @@ Each run creates a versioned directory:
 
 ```
 runs/
-  20260527_10_4f2e3f3/
+  20260527_13_abaf0f4/
     config.yaml                        config snapshot for this run
     vision__llama3.2-vision_11b__llama3.1_8b/
       prompts.yaml                     every prompt used in this run
@@ -94,43 +94,48 @@ Structured JSON per site with the same information plus metadata (run timestamp,
 # Install Ollama from https://ollama.com
 
 ollama pull llama3.1:8b                  # text passes (passes 2-4, and all passes in text mode)
-ollama pull llama3.2-vision:11b          # vision pass 1 (vision mode only)
+ollama pull llama3.2-vision:11b          # vision pass 1 (vision mode only, ~7.8 GB)
 ```
 
-### 2. Install Python dependencies
-
-**Recommended — uv:**
+### 2. Install uv and sync dependencies
 
 ```powershell
-# Windows
+# Windows — install uv once per machine
 winget install astral-sh.uv
-uv sync
 
-# Run
-uv run python segmenter.py
-# or activate and use python directly:
-.venv\Scripts\activate
-python segmenter.py
+# In the repo directory — creates .venv and installs all dependencies including PyMuPDF
+cd site_form_segmenter
+uv sync
 ```
 
 ```bash
 # Mac/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
+cd site_form_segmenter
 uv sync
+```
+
+### 3. Run with uv run
+
+**Always use `uv run` to launch the script.** This ensures the correct virtual environment (the one `uv sync` just built) is used, regardless of what other venvs may be active in your shell:
+
+```powershell
 uv run python segmenter.py
 ```
 
-`pymupdf` is included in `pyproject.toml` and installed by `uv sync`. It is only used in vision mode — if you only use text mode you can remove it from `pyproject.toml`.
-
-**Alternative — plain pip:**
+If you prefer to activate the venv manually instead:
 
 ```powershell
-python -m venv .venv
+# Windows
 .venv\Scripts\activate
-pip install httpx pyyaml pymupdf
+python segmenter.py
+
+# Mac/Linux
+source .venv/bin/activate
+python segmenter.py
 ```
 
-### 3. Configure paths
+### 4. Configure paths
 
 Edit `config.yaml`:
 
@@ -143,40 +148,40 @@ vision_model: 'llama3.2-vision:11b'
 
 ## Usage
 
+All examples use `uv run python segmenter.py`. If your venv is already activated, `python segmenter.py` works identically.
+
 ```powershell
 # All sites, mode from config.yaml (default: vision)
-python segmenter.py
+uv run python segmenter.py
 
 # Single site — fastest way to verify segmentation quality before a full run
-python segmenter.py --trinomial 16WN385
+uv run python segmenter.py --trinomial 16WN385
 
-# Text mode only — no PDF rendering, no pymupdf required
-python segmenter.py --mode text
-
-# Vision mode — override config
-python segmenter.py --mode vision
+# Text mode only — no PDF rendering, no PyMuPDF, faster
+uv run python segmenter.py --mode text
 
 # Single site in text mode
-python segmenter.py --trinomial 16WN385 --mode text
+uv run python segmenter.py --trinomial 16WN385 --mode text
 
 # Single site in vision mode
-python segmenter.py --trinomial 16WN385 --mode vision
+uv run python segmenter.py --trinomial 16WN385 --mode vision
 
 # Re-run everything, ignoring existing output files
-python segmenter.py --force
+uv run python segmenter.py --force
 
 # Use a different config file
-python segmenter.py --config config_test.yaml
+uv run python segmenter.py --config config_test.yaml
 
 # Single site with a test config
-python segmenter.py --config config_test.yaml --trinomial 16VN1452
+uv run python segmenter.py --config config_test.yaml --trinomial 16VN1452
 ```
 
 **Recommended first-run workflow:**
-1. Run one site in vision mode: `python segmenter.py --trinomial 16WN385 --mode vision`
-2. Open `runs/<run_id>/.../segmentation_map.md` and check that investigations are split correctly and pages are classified reasonably
-3. If vision mode looks good, run all sites: `python segmenter.py`
-4. If boundaries are wrong, try adjusting `pdf_render_dpi` upward (200–300) or switch to text mode for comparison
+1. Run one site in text mode first to confirm the pipeline works end-to-end: `uv run python segmenter.py --trinomial 16WN385 --mode text`
+2. Check `runs/<run_id>/.../segmentation_map.md` — verify the investigation boundaries look right
+3. Run the same site in vision mode: `uv run python segmenter.py --trinomial 16WN385 --mode vision --force`
+4. Compare the two maps to see whether vision improves Pass 1 boundary detection
+5. If vision mode looks good, run all sites: `uv run python segmenter.py`
 
 ## Configuration reference
 
@@ -186,8 +191,9 @@ trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'   # Louisiana format; adjust for other s
 
 mode: 'vision'           # 'vision' or 'text'
 page_truncation_chars: 500   # chars of OCR text per page shown in text passes
-pdf_render_dpi:        150   # image resolution for vision pass 1; 150 is fast and sufficient
-                             # raise to 200-300 if boundary detection is unreliable
+pdf_render_dpi:        96    # render resolution for vision pass 1
+                             # images are also hard-capped at 1024px on the longest edge,
+                             # so raising DPI beyond ~150 has no effect on payload size
 
 base_url:        'http://localhost:11434'
 vision_model:    'llama3.2-vision:11b'
@@ -195,6 +201,30 @@ text_model:      'llama3.1:8b'
 temperature:     0.05
 timeout_seconds: 1800
 ```
+
+## Troubleshooting
+
+### `500 Internal Server Error` on vision pass 1
+
+Ollama returns a 500 when the image payload is too large for the model to process. The script renders each page as a JPEG and sends all pages in a single request — more pages or higher DPI means a larger payload.
+
+The renderer caps images at 1024px on the longest edge regardless of DPI, which keeps payloads manageable for typical site forms (3–15 pages). If you still see 500 errors:
+
+- Lower `pdf_render_dpi` in `config.yaml` (try `72`)
+- Check how many pages the failing site has — `[render] 16VN1451: rendering 6 pages` is printed before the call
+- Run that site in text mode as a workaround: `uv run python segmenter.py --trinomial 16VN1451 --mode text`
+
+The script logs `[warn] pass1 failed — single segment fallback` and continues rather than crashing; a 500 on Pass 1 means the whole document is treated as one investigation, which is safe but loses boundary detection for multi-investigation PDFs.
+
+### `PyMuPDF is not installed in the current Python environment`
+
+The script checks for PyMuPDF at startup and exits immediately with the Python path if it's missing. The most common cause is running `python segmenter.py` with a shell that has a different project's venv active.
+
+Fix: use `uv run python segmenter.py` instead — uv selects the correct venv automatically. If the `.venv` doesn't exist yet, run `uv sync` first.
+
+### Script hangs mid-run
+
+The text model passes (2–4) can take 30–120 seconds per investigation depending on page count and model speed. The script prints `[done] <trinomial>` when each site finishes. If it appears to hang, it is likely waiting for an Ollama response — check that Ollama is running and not already processing another request. Interrupt with Ctrl+C; completed sites are already saved and will be skipped on the next run.
 
 ## Segment type prompts
 
@@ -220,11 +250,11 @@ Pass 3 receives the Pass 2 result injected via `{form_pages}` in the prompt temp
 site_form_segmenter/
   segmenter.py           main script
   config.yaml            configuration
-  pyproject.toml         dependencies (httpx, pyyaml, pymupdf)
+  pyproject.toml         dependencies (httpx, pyyaml, PyMuPDF)
   lib/
     grouper.py           finds trinomial dirs; returns txt path + pdf path
     page_parser.py       splits text_docling.txt on === Page N === markers
-    pdf_renderer.py      renders PDF pages to base64 JPEG via pymupdf
+    pdf_renderer.py      renders PDF pages to base64 JPEG via PyMuPDF
     ollama_client.py     Ollama REST wrapper: text + vision, token stats
     reporter.py          writes segmentation_map.md and segments.csv
   segment_types/
@@ -239,6 +269,6 @@ site_form_segmenter/
 ## Dependencies
 
 - [Ollama](https://ollama.com) — local LLM server
-- [pymupdf](https://pymupdf.readthedocs.io) — PDF rendering for vision mode
+- [PyMuPDF](https://pymupdf.readthedocs.io) — PDF rendering for vision mode
 - [httpx](https://www.python-httpx.org/) — HTTP client for Ollama API
 - [PyYAML](https://pyyaml.org/) — config parsing

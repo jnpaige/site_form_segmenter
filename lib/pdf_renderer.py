@@ -7,11 +7,20 @@ import base64
 from pathlib import Path
 
 
-def render_pages_to_images(pdf_path: Path, dpi: int = 150) -> dict[int, str]:
+def render_pages_to_images(
+    pdf_path: Path,
+    dpi: int = 96,
+    max_dim: int = 1024,
+) -> dict[int, str]:
     """Render each page of a PDF to a base64-encoded JPEG string.
 
     Returns {page_num: base64_string} with 0-indexed page numbers matching
     the === Page N === convention in text_docling.txt.
+
+    dpi controls render resolution. max_dim caps the longest edge of the
+    rendered image — if the page at the requested DPI would exceed max_dim
+    pixels in either dimension, the scale is reduced to fit. This keeps
+    Ollama request payloads manageable regardless of DPI setting.
 
     Raises ImportError if PyMuPDF is not installed.
     """
@@ -29,12 +38,20 @@ def render_pages_to_images(pdf_path: Path, dpi: int = 150) -> dict[int, str]:
             )
 
     doc = fitz.open(str(pdf_path))
-    mat = fitz.Matrix(dpi / 72, dpi / 72)
     images: dict[int, str] = {}
 
     for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        pix  = page.get_pixmap(matrix=mat)
+        page  = doc.load_page(page_num)
+        rect  = page.rect
+        scale = dpi / 72
+
+        # Clamp scale so neither dimension exceeds max_dim
+        if max_dim:
+            fit = max_dim / max(rect.width * scale, rect.height * scale)
+            if fit < 1.0:
+                scale *= fit
+
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
         images[page_num] = base64.b64encode(pix.tobytes("jpeg")).decode("utf-8")
 
     doc.close()

@@ -18,7 +18,8 @@ trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
 mode: 'vision'
 
 page_truncation_chars: 500   # chars of OCR text shown per page in text passes
-pdf_render_dpi:        150   # resolution for vision pass 1; 150 is fast and sufficient
+pdf_render_dpi:        96    # render resolution for vision pass 1; images are also capped at
+                             # 1024px on the longest edge regardless of DPI (see pdf_renderer.py)
 
 base_url:        'http://localhost:11434'
 vision_model:    'llama3.2-vision:11b'   # used for pass 1 in vision mode
