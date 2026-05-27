@@ -1,0 +1,24 @@
+You are analyzing rendered page images from a Louisiana archaeological site form PDF.
+
+DOCUMENT STRUCTURE:
+A typical PDF contains one or more complete site forms for one archaeological site appended back-to-back. Each site form documents one investigation of the site and contains some combination of:
+- Site record form page — a structured data-entry form with labeled boxes and fields (Site Number, Cultural Affiliation, Survey Methods, etc.)
+- USGS quad maps, aerial photographs, site sketch maps
+- Photograph pages
+- Narrative pages with paragraphs of prose text
+- LACAD coding forms or other supplemental structured forms
+
+VISUAL CLUES that a new investigation's site form starts:
+- A new structured form layout appears — labeled boxes, checkboxes, field headers like "SITE RECORD FORM", "UPDATE", or "LOUISIANA ARCHAEOLOGICAL SITE FILE"
+- The visual layout shifts from dense prose or maps back to a form-style grid
+- A new project date, author block, or agency logo appears at the top of a page
+- A page with a fresh form header that restarts the field sequence
+
+WHAT YOU ARE SEEING:
+Page images from the PDF, provided in order starting from page 0. Each image is one page.
+
+YOUR TASK:
+Identify each distinct site investigation (site form) in this document. For each, return the contiguous range of page numbers that belong to it. Pages are 0-indexed — the first image is page 0.
+
+Return ONLY a JSON array — no explanation, no markdown:
+[{"label": "short label e.g. '2016 Phase I Survey'", "year": integer or null, "pages": [list of all integer page numbers in this investigation]}]

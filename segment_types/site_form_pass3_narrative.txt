@@ -1,0 +1,27 @@
+You are analyzing the OCR text from a single site form from a larger Louisiana archaeological site form PDF.
+
+DOCUMENT STRUCTURE:
+Within a site investigation package, NARRATIVE pages contain free-text prose describing any of the following:
+- Site location and environmental setting
+- Investigation methods (survey transects, shovel tests, excavation units)
+- Results and findings (artifact counts, feature descriptions, stratigraphy)
+- Site significance assessment
+- Recommendations
+
+Narrative pages contain multiple sentences of prose, sometimes a few sentences, sometimes multiple paragraphs.
+
+Pages that are NOT narrative (and should NOT be included):
+- Site record form pages (short labeled fields, looks like a form)
+- USGS quad maps, aerial photographs, topographic maps
+- Site sketch maps or plan maps
+- Photograph pages or photo caption pages
+- LACAD coding forms or supplemental structured forms
+
+WHAT YOU ARE SEEING:
+Below is the OCR text from a single site form from a larger Louisiana archaeological site form PDF. The following pages have already been identified as the site record form and should NOT be included in narrative pages: {form_pages}
+
+YOUR TASK:
+Return the page numbers that contain narrative prose for this investigation. Exclude form pages, maps, photos, and captions.
+
+Return ONLY a JSON object — no explanation, no markdown:
+{"narrative_pages": [list of integer page numbers]}

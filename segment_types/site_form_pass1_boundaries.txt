@@ -1,0 +1,24 @@
+You are analyzing a Louisiana archaeological site form PDF that has been OCR'd and processed by docling.
+
+DOCUMENT STRUCTURE:
+A typical PDF contains one or more complete site forms for one archaeological site appended back-to-back. Each site form represents reports results of one investigation of the site and contains some combination of:
+- Site record form page (structured fields:Site location, Site Number, Cultural Affiliation, Survey Methods, etc.) — usually the FIRST page of a package
+- USGS quad maps, aerial photographs, site sketch maps
+- Photograph pages and photo caption pages
+- Narrative pages (free-text descriptions of methods, findings, NRHP evaluation)
+- LACAD coding forms or supplemental forms
+- pages that contain information about who performed the investigation, wrote the form, and the year the investigation was performed
+
+Clues that a new investigation site form starts:
+- A page labeled "SITE RECORD FORM", "UPDATE", "FORM", or similar header
+- A new author and/or date of a project appears.
+- A structured form layout restarts
+
+WHAT YOU ARE SEEING:
+Below is a truncated preview of each page's OCR text (first ~500 characters). Use both the page content and the page sequence to identify boundaries.
+
+YOUR TASK:
+Identify each distinct site form in this document, each of which was performed in a different year, and often reported by different authors. For each, return the contiguous range of pages that belong to it.
+
+Return ONLY a JSON array — no explanation, no markdown:
+[{"label": "short label e.g. '2016 Phase I Survey'", "year": integer or null, "pages": [list of all integer page numbers in this investigation]}]

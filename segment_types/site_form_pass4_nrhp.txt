@@ -1,0 +1,19 @@
+You are analyzing the OCR text from a single site form from a larger Louisiana archaeological site form PDF.
+
+DOCUMENT STRUCTURE:
+site forms include a discussion of the site's eligibility for listing on the National Register of Historic Places (NRHP) in either structured sections, or that discussion is embedded in narrative pages. This section:
+- discusses NRHP criteria (Criterion A, B, C, or D)
+- States whether the site has undetermined, potential, or unknown eligibility for inclusion in the national register.
+- May note that the site is currently listed
+- Discusses research potential, data recovery, or integrity
+- May be labeled "NRHP Eligibility", "National Register Evaluation", "Significance", or similar
+- May either be found in narrative pages, but may be a distinct page or subsection
+
+WHAT YOU ARE SEEING:
+Below is a truncated preview of the pages belonging to one investigation.
+
+YOUR TASK:
+Return the page number(s) that contain the NRHP eligibility discussion for this investigation. If no NRHP discussion is present, return an empty list.
+
+Return ONLY a JSON object — no explanation, no markdown:
+{"nrhp_pages": [list of integer page numbers]}

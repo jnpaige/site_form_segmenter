@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# config.yaml — site_form_segmenter
+# ---------------------------------------------------------------------------
+# Usage:
+#   python segmenter.py                     # all sites, mode from this file
+#   python segmenter.py --trinomial 16WN385 # single site
+#   python segmenter.py --mode text         # override mode
+#   python segmenter.py --mode vision       # override mode
+#   python segmenter.py --force             # re-run existing outputs
+# ---------------------------------------------------------------------------
+
+input_dir:         'C:\Users\jpaige\Desktop\Local_repositories\LLM_coding_pdf_test_sets\2024_forms_large_files_surya_docling'
+trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
+
+# 'vision' uses llama3.2-vision for pass 1 (investigation boundaries via PDF images),
+# then text_model for passes 2-4.
+# 'text'   uses text_model for all 4 passes (OCR text only, no PDF rendering).
+mode: 'vision'
+
+page_truncation_chars: 500   # chars of OCR text shown per page in text passes
+pdf_render_dpi:        150   # resolution for vision pass 1; 150 is fast and sufficient
+
+base_url:        'http://localhost:11434'
+vision_model:    'llama3.2-vision:11b'   # used for pass 1 in vision mode
+text_model:      'llama3.1:8b'           # used for passes 2-4 (and all passes in text mode)
+temperature:     0.05
+timeout_seconds: 1800
