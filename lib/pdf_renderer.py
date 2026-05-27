@@ -1,6 +1,7 @@
 """Render PDF pages to base64-encoded JPEG images for vision model input.
 
-Requires pymupdf: pip install pymupdf
+Requires PyMuPDF (already in pyproject.toml). If not installed, run:
+  uv sync
 """
 import base64
 from pathlib import Path
@@ -12,16 +13,20 @@ def render_pages_to_images(pdf_path: Path, dpi: int = 150) -> dict[int, str]:
     Returns {page_num: base64_string} with 0-indexed page numbers matching
     the === Page N === convention in text_docling.txt.
 
-    Raises ImportError if pymupdf is not installed.
+    Raises ImportError if PyMuPDF is not installed.
     """
     try:
-        import fitz
+        import pymupdf as fitz          # PyMuPDF >= 1.24 canonical import
     except ImportError:
-        raise ImportError(
-            "pymupdf is required for vision mode.  Install it with:\n"
-            "  pip install pymupdf\n"
-            "or add it to pyproject.toml and run: uv sync"
-        )
+        try:
+            import fitz                 # legacy name, still works on older installs
+        except ImportError:
+            raise ImportError(
+                "PyMuPDF is required for vision mode.\n"
+                "It is already declared in pyproject.toml — just run:\n"
+                "  uv sync\n"
+                "or manually: pip install PyMuPDF"
+            )
 
     doc = fitz.open(str(pdf_path))
     mat = fitz.Matrix(dpi / 72, dpi / 72)
