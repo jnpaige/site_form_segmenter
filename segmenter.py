@@ -44,6 +44,38 @@ from ollama_client import extract_json, extract_json_vision, get_stats
 from reporter      import append_segments_csv, append_segmentation_map
 
 
+def _check_pymupdf() -> bool:
+    """Return True if PyMuPDF is importable in the current Python environment."""
+    try:
+        import pymupdf      # noqa: F401
+        return True
+    except ImportError:
+        pass
+    try:
+        import fitz         # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+_PYMUPDF_HINT = """\
+[error] PyMuPDF is not installed in the current Python environment.
+        Python: {python}
+
+        Fix — activate this project's venv first:
+          .venv\\Scripts\\activate        (Windows)
+          source .venv/bin/activate      (Mac/Linux)
+          python segmenter.py
+
+        Or use uv run so the venv is selected automatically:
+          uv run python segmenter.py
+
+        If the venv doesn't exist yet:
+          uv sync
+          uv run python segmenter.py
+"""
+
+
 def _run_id() -> str:
     try:
         sha = subprocess.check_output(
@@ -72,6 +104,10 @@ def main():
     input_dir    = Path(cfg["input_dir"])
     pattern      = cfg.get("trinomial_pattern", r"(\d{2}[A-Z]{2}\d+)")
     mode         = args.mode or cfg.get("mode", "vision")
+
+    if mode == "vision" and not _check_pymupdf():
+        print(_PYMUPDF_HINT.format(python=sys.executable))
+        sys.exit(1)
     page_trunc   = cfg.get("page_truncation_chars", 500)
     render_dpi   = cfg.get("pdf_render_dpi", 150)
     base_url     = cfg["base_url"]
