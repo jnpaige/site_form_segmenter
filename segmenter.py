@@ -123,7 +123,8 @@ def main():
     else:
         mode_slug = f"text__{_slug(text_model)}"
 
-    run_dir = Path("runs") / _run_id()
+    runs_root = Path(cfg.get("output_dir", "runs"))
+    run_dir = runs_root / _run_id()
     out_dir = run_dir / mode_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.yaml").write_text(

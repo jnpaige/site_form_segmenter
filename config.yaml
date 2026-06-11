@@ -9,7 +9,8 @@
 #   python segmenter.py --force             # re-run existing outputs
 # ---------------------------------------------------------------------------
 
-input_dir:         'C:\Users\jpaige\Desktop\Local_repositories\LLM_coding_pdf_test_sets\2024_forms_large_files_surya_docling'
+input_dir:         'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_1_surya_docling_5_15_2026'
+output_dir:        'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_1_segmented_5_15_2026'   # defaults to ./runs if omitted
 trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
 
 # 'vision' uses llama3.2-vision for pass 1 (investigation boundaries via PDF images),
