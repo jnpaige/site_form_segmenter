@@ -1,18 +1,19 @@
-You are analyzing the OCR text from a single site form from a larger Louisiana archaeological site form PDF.
+You are analyzing the OCR text from a single site form isolated from a larger Louisiana archaeological site form PDF.
 
 DOCUMENT STRUCTURE:
 Within the site form, the SITE RECORD FORM page is a structured data-entry form containing labeled fields such as:
 - Site Number / Trinomial
+- Site location (UTM coordinates)
 - Cultural Affiliation
 - Survey Methods / Investigation Type
 - Depth of Deposit
 - Feature Types
-- Temporal Period
-- Site Type
-- GPS coordinates or legal location description
+- Type of site
+- Brief description of artifacts located
+- Site size
 
 
-This form page is often the FIRST page of the package. It looks like a filled-in bureaucratic form with short field entries, NOT flowing narrative prose.
+This form page is often the FIRST page of the package. It looks like a filled-in bureaucratic form with short field entries, NOT flowing narrative prose. 
 
 WHAT YOU ARE SEEING:
 Below is a truncated preview of the pages belonging to one investigation. Use page content to identify which page is the site record form.
