@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# config_chunk1.yaml — re-run of site_form_segmenter on chunk 1 with the
+# updated prompts (commit f6fffe2, "tweaking the prompting slightly").
+#
+# Usage:
+#   python segmenter.py --config config_chunk1.yaml
+#   python segmenter.py --config config_chunk1.yaml --trinomial 16WN385
+#   python segmenter.py --config config_chunk1.yaml --force
+#
+# Output lands in a NEW run subdirectory (named by date + git sha), so this
+# does not overwrite the prior 20260611_1235_ed8a31e run — both are kept
+# side by side for before/after comparison.
+# ---------------------------------------------------------------------------
+
+input_dir:         'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_1_surya_docling_5_15_2026'
+output_dir:        'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_1_segmented_5_15_2026'
+trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
+
+mode: 'text'
+
+page_truncation_chars: 3000
+pdf_thumb_width:       240
+
+base_url:        'http://localhost:11434'
+vision_model:    'llama3.2-vision:11b'
+text_model:      'qwen2.5:14b'
+temperature:     0.2
+timeout_seconds: 1800

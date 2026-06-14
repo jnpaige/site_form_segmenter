@@ -1,0 +1,31 @@
+You are analyzing the OCR text from a Louisiana archaeological site form PDF.
+
+CONTEXT:
+A first pass already split this document into investigations (distinct site
+forms, each performed in a different year and often by different authors).
+That pass FAILED to assign the pages listed in MISSING_PAGES to any
+investigation. Below is the OCR text for those pages, plus a few pages of
+surrounding context for reference.
+
+CANDIDATES lists the investigations adjacent to this gap, by label and year.
+
+YOUR TASK:
+For each page number listed in MISSING_PAGES, decide:
+- It belongs to one of CANDIDATES — e.g. it is a continuation page (map,
+  photo, narrative, coding form, reference list) that is part of that
+  investigation's site form. Use that candidate's label EXACTLY as given.
+- It is the start of, or belongs to, a DISTINCT investigation not listed in
+  CANDIDATES — e.g. it has its own "SITE RECORD FORM"/"UPDATE FORM" header,
+  a different author, or a different year than any candidate. Give it a new
+  label (short description, e.g. "2005 Site Record Update") and year (or
+  null if unknown).
+
+Every page number in MISSING_PAGES must be assigned to exactly one group —
+do not omit any of them, and do not include page numbers that are not in
+MISSING_PAGES.
+
+MISSING_PAGES: {MISSING_PAGES}
+CANDIDATES: {CANDIDATES}
+
+Return ONLY a JSON array — no explanation, no markdown:
+[{"label": "existing candidate label or new short label", "year": integer or null, "pages": [list of integers, subset of MISSING_PAGES]}]

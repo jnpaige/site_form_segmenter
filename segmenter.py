@@ -279,6 +279,10 @@ def _segment_site_form(
         print(f"    [warn] pass1 failed for {trinomial} — single segment fallback")
         investigations = [{"label": trinomial, "year": None, "pages": sorted(pages.keys())}]
 
+    investigations = _fill_coverage_gaps(
+        trinomial, investigations, pages, ollama_cfg, seg_types_dir, page_trunc,
+    )
+
     segments = []
     for inv in investigations:
         label     = inv.get("label", trinomial)
@@ -338,6 +342,126 @@ def _segment_site_form(
     return segments
 
 
+def _contiguous_runs(nums: list[int]) -> list[list[int]]:
+    """Group a sorted list of ints into maximal contiguous runs."""
+    runs: list[list[int]] = []
+    for n in nums:
+        if runs and n == runs[-1][-1] + 1:
+            runs[-1].append(n)
+        else:
+            runs.append([n])
+    return runs
+
+
+def _fill_coverage_gaps(
+    trinomial: str,
+    investigations: list[dict],
+    pages: dict[int, str],
+    ollama_cfg: dict,
+    seg_types_dir: Path,
+    page_trunc: int,
+    pad: int = 2,
+) -> list[dict]:
+    """Ensure every page in `pages` is claimed by some investigation.
+
+    Pass 1 sometimes drops pages (often page 0, or whole multi-page runs)
+    entirely from every segment's `pages` array. For each maximal run of
+    unassigned pages, run a second prompt over that run plus `pad` pages of
+    surrounding context, asking the model to assign the missing pages to an
+    existing adjacent investigation or to a new one. Anything still
+    unassigned afterwards is snapped to the nearest investigation by page
+    distance, so coverage is guaranteed.
+    """
+    all_pages = set(pages.keys())
+
+    for inv in investigations:
+        inv["pages"] = sorted(int(p) for p in inv.get("pages", []) if int(p) in all_pages)
+
+    assigned = {p for inv in investigations for p in inv["pages"]}
+    missing  = sorted(all_pages - assigned)
+    if not missing:
+        return investigations
+
+    text_model = ollama_cfg["text_model"]
+    base_url   = ollama_cfg["base_url"]
+    temp       = ollama_cfg["temperature"]
+    timeout    = float(ollama_cfg["timeout"])
+
+    gapfill_file = seg_types_dir / "site_form_pass1_gapfill.txt"
+    if not gapfill_file.exists():
+        gapfill_template = None
+    else:
+        gapfill_template = gapfill_file.read_text(encoding="utf-8").strip()
+
+    lo_bound, hi_bound = min(all_pages), max(all_pages)
+
+    for run in _contiguous_runs(missing):
+        if gapfill_template is None:
+            break
+
+        lo = max(lo_bound, run[0] - pad)
+        hi = min(hi_bound, run[-1] + pad)
+        window_pages = [p for p in range(lo, hi + 1) if p in all_pages]
+
+        candidates = [
+            {"label": inv["label"], "year": inv.get("year")}
+            for inv in investigations
+            if inv["pages"] and set(inv["pages"]) & set(window_pages)
+        ]
+
+        preview = build_page_preview({p: pages[p] for p in window_pages}, max_chars=page_trunc)
+        prompt = (
+            gapfill_template
+            .replace("{MISSING_PAGES}", str(run))
+            .replace("{CANDIDATES}", json.dumps(candidates, ensure_ascii=False))
+        )
+        result = extract_json(
+            system_prompt=prompt + "\n\nReturn ONLY a JSON array. No other text.",
+            user_content=f"DOCUMENT: {trinomial}\n\n{preview}",
+            model=text_model, base_url=base_url,
+            temperature=temp, timeout=timeout,
+            label=f"seg-p1-gapfill:{trinomial}:{run[0]}-{run[-1]}",
+        )
+
+        if not isinstance(result, list):
+            print(f"    [warn] {trinomial}: gapfill failed for pages {run}")
+            continue
+
+        missing_set = set(run)
+        for group in result:
+            if not isinstance(group, dict):
+                continue
+            label     = group.get("label")
+            new_pages = sorted(int(p) for p in group.get("pages", []) if str(p).lstrip("-").isdigit() and int(p) in missing_set)
+            if not label or not new_pages:
+                continue
+            existing = next((inv for inv in investigations if inv["label"] == label), None)
+            if existing is not None:
+                existing["pages"] = sorted(set(existing["pages"]) | set(new_pages))
+            else:
+                investigations.append({
+                    "label": label,
+                    "year":  group.get("year"),
+                    "pages": new_pages,
+                })
+
+    # Deterministic fallback: snap any still-unassigned page to the
+    # nearest investigation by page distance.
+    assigned = {p for inv in investigations for p in inv["pages"]}
+    still_missing = sorted(all_pages - assigned)
+    if still_missing:
+        print(f"    [warn] {trinomial}: pages {still_missing} unassigned after gapfill — snapping to nearest segment")
+        for p in still_missing:
+            candidates = [inv for inv in investigations if inv["pages"]]
+            if not candidates:
+                continue
+            nearest = min(candidates, key=lambda inv: min(abs(p - q) for q in inv["pages"]))
+            nearest["pages"] = sorted(set(nearest["pages"]) | {p})
+
+    investigations.sort(key=lambda inv: min(inv["pages"]) if inv["pages"] else 0)
+    return investigations
+
+
 def _page_list(result, key: str, valid_pages: list[int]) -> list[int]:
     if not isinstance(result, dict):
         return []
@@ -355,6 +479,7 @@ def _save_prompt_snapshot(out_dir: Path, mode: str, seg_types_dir: Path) -> None
     p1_key  = "pass1_vision"               if mode == "vision" else "pass1_boundaries"
     files = [
         (p1_key,           p1_file),
+        ("pass1_gapfill",  "site_form_pass1_gapfill.txt"),
         ("pass2_form_page", "site_form_pass2_form_page.txt"),
         ("pass3_narrative", "site_form_pass3_narrative.txt"),
         ("pass4_nrhp",      "site_form_pass4_nrhp.txt"),

@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# config_chunk3.yaml — re-run of site_form_segmenter on chunk 3 with the
+# updated prompts (commit f6fffe2, "tweaking the prompting slightly").
+#
+# Usage:
+#   python segmenter.py --config config_chunk3.yaml
+#   python segmenter.py --config config_chunk3.yaml --trinomial 16WN385
+#   python segmenter.py --config config_chunk3.yaml --force
+#
+# Note: the chunk 3 docling export has a nested duplicate-named directory
+# (zip extraction artifact) — input_dir below points at the inner directory
+# that actually contains <trinomial>/text_docling.txt.
+#
+# Output lands in a NEW run subdirectory (named by date + git sha) under
+# 2024_forms_chunk_3_segmented_5_15_2026, alongside the prior c650482 runs,
+# so both are kept for before/after comparison.
+# ---------------------------------------------------------------------------
+
+input_dir:         'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_3_surya_docling_5_15_2026\2024_forms_chunk_3_surya_docling_5_15_2026'
+output_dir:        'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_3_segmented_5_15_2026'
+trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
+
+mode: 'text'
+
+page_truncation_chars: 3000
+pdf_thumb_width:       240
+
+base_url:        'http://localhost:11434'
+vision_model:    'llama3.2-vision:11b'
+text_model:      'qwen2.5:14b'
+temperature:     0.2
+timeout_seconds: 1800
