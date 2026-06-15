@@ -10,12 +10,25 @@ A 4-pass approach, each pass handling one narrow question:
 
 | Pass | Model | Task |
 |---|---|---|
-| 1 | vision or text | Identify each investigation as a contiguous page range |
+| 1 | vision or text | Identify each investigation's starting page, and the contiguous range of pages that belong to it |
+| 1b | text (only if needed) | Gap-fill: re-assign any pages Pass 1 left unclaimed |
 | 2 | text | Find the structured site record form page within each investigation |
 | 3 | text | Find narrative prose pages (excluding the form page) |
 | 4 | text | Find NRHP eligibility discussion pages |
 
 Dividing segmentation into focused passes lets a small model handle each one reliably. Pass 1 is the hardest — it has to detect where one investigation ends and the next begins — which is where the vision model option helps. Passes 2–4 are straightforward page-type classification tasks that an 8b text model handles well.
+
+### Page-coverage guarantee
+
+After Pass 1 returns its investigation list, `segmenter.py` checks that every
+page in the document is claimed by some investigation. If any pages are left
+unassigned (most commonly page 0, or a multi-page run in the middle of a long
+document), it runs a second prompt (`site_form_pass1_gapfill.txt`) over just
+those pages plus a couple pages of surrounding context, asking the model to
+assign them to one of the bordering investigations or to a new one. Anything
+still unassigned after that is snapped to the nearest investigation by page
+distance. The result: every page always ends up in exactly one investigation's
+`pages` list — no pages are silently dropped.
 
 ## Two modes
 
@@ -43,7 +56,8 @@ The same directory structure produced by `pdf_ocr`:
 
 ## Output
 
-Each run creates a versioned directory:
+Each run creates a versioned directory under `output_dir` (or `./runs` if
+`output_dir` is not set in the config):
 
 ```
 runs/
@@ -187,10 +201,12 @@ uv run python segmenter.py --config config_test.yaml --trinomial 16VN1452
 
 ```yaml
 input_dir:         'path/to/docling_output'
+output_dir:        'path/to/output'        # optional; defaults to ./runs if omitted
 trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'   # Louisiana format; adjust for other states
 
 mode: 'vision'           # 'vision' or 'text'
 page_truncation_chars: 500   # chars of OCR text per page shown in text passes
+                             # (3000 recommended for qwen2.5:14b — see below)
 pdf_thumb_width:       240   # width in pixels of each page thumbnail in the contact sheet grid;
                              # 3 columns × 240px = 720px wide total image sent to the vision model
 
@@ -200,6 +216,11 @@ text_model:      'llama3.1:8b'
 temperature:     0.05
 timeout_seconds: 1800
 ```
+
+`input_dir`/`output_dir` can be absolute paths, useful for keeping output as
+a sister directory to the input rather than nested under the repo's `runs/`.
+`config_chunk1.yaml` / `config_chunk3.yaml` are examples of chunk-specific
+configs passed via `--config`.
 
 ## Troubleshooting
 
@@ -231,6 +252,7 @@ All prompts live in `segment_types/`. Each pass has its own file so prompts can 
 |---|---|---|---|
 | `site_form_pass1_vision.txt` | vision | 1 | Boundary detection from page images |
 | `site_form_pass1_boundaries.txt` | text | 1 | Boundary detection from OCR text |
+| `site_form_pass1_gapfill.txt` | both | 1b | Assign any pages Pass 1 left unclaimed (only runs if needed) |
 | `site_form_pass2_form_page.txt` | both | 2 | Identify structured site record form page |
 | `site_form_pass3_narrative.txt` | both | 3 | Identify narrative prose pages |
 | `site_form_pass4_nrhp.txt` | both | 4 | Identify NRHP eligibility discussion pages |
@@ -239,7 +261,7 @@ Pass 3 receives the Pass 2 result injected via `{form_pages}` in the prompt temp
 
 ## Recommended models
 
-The default `llama3.1:8b` works but struggles with clean JSON output on ambiguous documents. Better options for `text_model` (all passes in text mode, passes 2–4 in vision mode):
+`config.yaml` defaults to `qwen2.5:14b` (the recommended model — best JSON instruction-following at this size). The older `llama3.1:8b` works but struggles with clean JSON output on ambiguous documents. Other options for `text_model` (all passes in text mode, passes 2–4 in vision mode):
 
 | Model | Size | Notes |
 |---|---|---|
@@ -277,10 +299,11 @@ site_form_segmenter/
   segment_types/
     site_form_pass1_vision.txt
     site_form_pass1_boundaries.txt
+    site_form_pass1_gapfill.txt
     site_form_pass2_form_page.txt
     site_form_pass3_narrative.txt
     site_form_pass4_nrhp.txt
-  runs/                  gitignored — versioned run outputs
+  runs/                  gitignored — versioned run outputs (or output_dir, if set)
 ```
 
 ## Dependencies
