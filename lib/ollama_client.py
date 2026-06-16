@@ -18,8 +18,12 @@ def call_ollama(
     temperature: float = 0.05,
     timeout: float = 1800,
     label: str = "",
+    num_ctx: int | None = None,
 ) -> str | None:
     """Call Ollama chat endpoint; return raw text response or None on error."""
+    options = {"temperature": temperature}
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     payload = {
         "model": model,
         "messages": [
@@ -27,7 +31,7 @@ def call_ollama(
             {"role": "user",   "content": user_content},
         ],
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": options,
     }
     return _post(payload, base_url, timeout, label)
 
@@ -41,12 +45,16 @@ def call_ollama_vision(
     temperature: float = 0.05,
     timeout: float = 1800,
     label: str = "",
+    num_ctx: int | None = None,
 ) -> str | None:
     """Call Ollama chat endpoint with embedded images; return raw text or None.
 
     images: list of base64-encoded strings (no data-URI prefix).
     Images are attached to the user message; the model sees them in order.
     """
+    options = {"temperature": temperature}
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     payload = {
         "model": model,
         "messages": [
@@ -54,7 +62,7 @@ def call_ollama_vision(
             {"role": "user",   "content": user_content, "images": images},
         ],
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": options,
     }
     return _post(payload, base_url, timeout, label)
 
@@ -96,9 +104,10 @@ def extract_json(
     temperature: float = 0.05,
     timeout: float = 1800,
     label: str = "",
+    num_ctx: int | None = None,
 ) -> dict | list | None:
     text = call_ollama(system_prompt, user_content, model, base_url,
-                       temperature, timeout, label)
+                       temperature, timeout, label, num_ctx)
     return _parse_json(text, label) if text is not None else None
 
 
@@ -111,9 +120,10 @@ def extract_json_vision(
     temperature: float = 0.05,
     timeout: float = 1800,
     label: str = "",
+    num_ctx: int | None = None,
 ) -> dict | list | None:
     text = call_ollama_vision(system_prompt, user_content, images, model,
-                              base_url, temperature, timeout, label)
+                              base_url, temperature, timeout, label, num_ctx)
     return _parse_json(text, label) if text is not None else None
 
 

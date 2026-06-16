@@ -115,6 +115,8 @@ def main():
     vision_model = cfg.get("vision_model", "llama3.2-vision:11b")
     temperature  = cfg.get("temperature", 0.05)
     timeout      = cfg.get("timeout_seconds", 1800)
+    num_ctx_min  = cfg.get("num_ctx_min", 8192)
+    num_ctx_max  = cfg.get("num_ctx_max", 32768)
 
     seg_types_dir = Path("segment_types")
 
@@ -156,6 +158,8 @@ def main():
         "base_url":      base_url,
         "temperature":   temperature,
         "timeout":       timeout,
+        "num_ctx_min":   num_ctx_min,
+        "num_ctx_max":   num_ctx_max,
     }
 
     for trinomial in trinomials:
@@ -245,6 +249,9 @@ def _segment_site_form(
     base_url     = ollama_cfg["base_url"]
     temp         = ollama_cfg["temperature"]
     timeout      = float(ollama_cfg["timeout"])
+    num_ctx_min  = ollama_cfg.get("num_ctx_min", 8192)
+    num_ctx_max  = ollama_cfg.get("num_ctx_max", 32768)
+    page_trunc   = _adaptive_page_trunc(len(pages), page_trunc, num_ctx_max)
     full_preview = build_page_preview(pages, max_chars=page_trunc)
     page_nums    = sorted(pages.keys())
 
@@ -267,12 +274,15 @@ def _segment_site_form(
         )
     else:
         p1_prompt = (seg_types_dir / "site_form_pass1_boundaries.txt").read_text(encoding="utf-8").strip()
+        p1_system = p1_prompt + "\n\nReturn ONLY a JSON array. No other text."
+        p1_user   = f"DOCUMENT: {trinomial}\n\n{full_preview}"
         investigations = extract_json(
-            system_prompt=p1_prompt + "\n\nReturn ONLY a JSON array. No other text.",
-            user_content=f"DOCUMENT: {trinomial}\n\n{full_preview}",
+            system_prompt=p1_system,
+            user_content=p1_user,
             model=text_model,
             base_url=base_url, temperature=temp, timeout=timeout,
             label=f"seg-p1:{trinomial}",
+            num_ctx=_estimate_num_ctx(p1_system, p1_user, min_ctx=num_ctx_min, max_ctx=num_ctx_max),
         )
 
     if not isinstance(investigations, list) or not investigations:
@@ -298,35 +308,41 @@ def _segment_site_form(
 
         # --- Pass 2: site record form page ---
         p2_prompt = (seg_types_dir / "site_form_pass2_form_page.txt").read_text(encoding="utf-8").strip()
+        p2_system = p2_prompt + "\n\nReturn ONLY a JSON object. No other text."
         r2 = extract_json(
-            system_prompt=p2_prompt + "\n\nReturn ONLY a JSON object. No other text.",
+            system_prompt=p2_system,
             user_content=inv_context,
             model=text_model, base_url=base_url,
             temperature=temp, timeout=timeout,
             label=f"seg-p2:{trinomial}:{label}",
+            num_ctx=_estimate_num_ctx(p2_system, inv_context, min_ctx=num_ctx_min, max_ctx=num_ctx_max),
         )
         form_pages = _page_list(r2, "form_pages", inv_pages)
 
         # --- Pass 3: narrative pages ---
         p3_template = (seg_types_dir / "site_form_pass3_narrative.txt").read_text(encoding="utf-8")
-        p3_prompt   = p3_template.replace("{form_pages}", str(form_pages)).strip()
+        p3_system   = (p3_template.replace("{form_pages}", str(form_pages)).strip()
+                        + "\n\nReturn ONLY a JSON object. No other text.")
         r3 = extract_json(
-            system_prompt=p3_prompt + "\n\nReturn ONLY a JSON object. No other text.",
+            system_prompt=p3_system,
             user_content=inv_context,
             model=text_model, base_url=base_url,
             temperature=temp, timeout=timeout,
             label=f"seg-p3:{trinomial}:{label}",
+            num_ctx=_estimate_num_ctx(p3_system, inv_context, min_ctx=num_ctx_min, max_ctx=num_ctx_max),
         )
         narrative_pages = _page_list(r3, "narrative_pages", inv_pages)
 
         # --- Pass 4: NRHP eligibility pages ---
         p4_prompt = (seg_types_dir / "site_form_pass4_nrhp.txt").read_text(encoding="utf-8").strip()
+        p4_system = p4_prompt + "\n\nReturn ONLY a JSON object. No other text."
         r4 = extract_json(
-            system_prompt=p4_prompt + "\n\nReturn ONLY a JSON object. No other text.",
+            system_prompt=p4_system,
             user_content=inv_context,
             model=text_model, base_url=base_url,
             temperature=temp, timeout=timeout,
             label=f"seg-p4:{trinomial}:{label}",
+            num_ctx=_estimate_num_ctx(p4_system, inv_context, min_ctx=num_ctx_min, max_ctx=num_ctx_max),
         )
         nrhp_pages = _page_list(r4, "nrhp_pages", [])
 
@@ -340,6 +356,46 @@ def _segment_site_form(
         })
 
     return segments
+
+
+def _estimate_num_ctx(
+    *texts: str,
+    min_ctx: int = 8192,
+    max_ctx: int = 32768,
+    completion_budget: int = 1024,
+    chars_per_token: int = 3,
+) -> int:
+    """Estimate a num_ctx large enough to hold `texts` plus headroom for the
+    model's response, clamped to [min_ctx, max_ctx] and rounded up to the
+    nearest 1024.
+
+    Ollama defaults num_ctx to 2048 regardless of the model's native context
+    length, which silently truncates long prompts and produces garbled JSON.
+    """
+    total_chars = sum(len(t) for t in texts)
+    est_tokens  = total_chars // chars_per_token + completion_budget
+    ctx = ((est_tokens + 1023) // 1024) * 1024
+    return max(min_ctx, min(max_ctx, ctx))
+
+
+def _adaptive_page_trunc(
+    num_pages: int,
+    base_trunc: int,
+    max_ctx: int,
+    chars_per_token: int = 3,
+    completion_budget: int = 1024,
+    overhead_chars: int = 1000,
+    floor: int = 500,
+) -> int:
+    """Reduce per-page truncation for documents with many pages so the full
+    preview still fits within max_ctx, without chunking. Falls back to
+    `base_trunc` for documents small enough to fit as-is.
+    """
+    if num_pages <= 0:
+        return base_trunc
+    budget_chars = (max_ctx - completion_budget) * chars_per_token - overhead_chars
+    max_per_page = budget_chars // num_pages
+    return max(floor, min(base_trunc, max_per_page))
 
 
 def _contiguous_runs(nums: list[int]) -> list[list[int]]:
@@ -382,10 +438,12 @@ def _fill_coverage_gaps(
     if not missing:
         return investigations
 
-    text_model = ollama_cfg["text_model"]
-    base_url   = ollama_cfg["base_url"]
-    temp       = ollama_cfg["temperature"]
-    timeout    = float(ollama_cfg["timeout"])
+    text_model  = ollama_cfg["text_model"]
+    base_url    = ollama_cfg["base_url"]
+    temp        = ollama_cfg["temperature"]
+    timeout     = float(ollama_cfg["timeout"])
+    num_ctx_min = ollama_cfg.get("num_ctx_min", 8192)
+    num_ctx_max = ollama_cfg.get("num_ctx_max", 32768)
 
     gapfill_file = seg_types_dir / "site_form_pass1_gapfill.txt"
     if not gapfill_file.exists():
@@ -410,17 +468,20 @@ def _fill_coverage_gaps(
         ]
 
         preview = build_page_preview({p: pages[p] for p in window_pages}, max_chars=page_trunc)
-        prompt = (
+        gf_system = (
             gapfill_template
             .replace("{MISSING_PAGES}", str(run))
             .replace("{CANDIDATES}", json.dumps(candidates, ensure_ascii=False))
+            + "\n\nReturn ONLY a JSON array. No other text."
         )
+        gf_user = f"DOCUMENT: {trinomial}\n\n{preview}"
         result = extract_json(
-            system_prompt=prompt + "\n\nReturn ONLY a JSON array. No other text.",
-            user_content=f"DOCUMENT: {trinomial}\n\n{preview}",
+            system_prompt=gf_system,
+            user_content=gf_user,
             model=text_model, base_url=base_url,
             temperature=temp, timeout=timeout,
             label=f"seg-p1-gapfill:{trinomial}:{run[0]}-{run[-1]}",
+            num_ctx=_estimate_num_ctx(gf_system, gf_user, min_ctx=num_ctx_min, max_ctx=num_ctx_max),
         )
 
         if not isinstance(result, list):

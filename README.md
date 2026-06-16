@@ -279,6 +279,31 @@ Then set in `config.yaml`:
 text_model: 'qwen2.5:14b'
 ```
 
+## 2026-06-16 evaluation — downstream error analysis
+
+A stratified sample of 20 site forms was manually reviewed against extraction outputs from [site_attribute_extractor](https://github.com/jnpaige/site_attribute_extractor) to estimate extraction error rates. Several errors traced back to segmenter page-selection failures rather than extraction model failures.
+
+**Segmenter-sourced errors identified:**
+
+The most impactful errors occurred when neither `narrative_pages` nor `nrhp_pages` were populated for a segment. In those cases, the extractor sees only `form_pages` — often just the header/checkbox page — and misses the eligibility field entirely. Confirmed examples:
+
+- **16VN2779**: segmenter produced only `form_pages`; the "State or National Register Eligibility: Not eligible" field was on a page not included. Extractor returned "undetermined."
+- **16VN577**: same pattern; explicit "Not eligible" field on a narrative page the segmenter did not identify.
+
+These are not extractor prompt failures — the model correctly returned "undetermined" given the text it was shown. The page-selection step is where the information was lost.
+
+**Downstream bandaid applied (site_attribute_extractor `lib/page_parser.py`):**
+
+`relevant_pages()` in the extractor now supplements `form_pages` with the first 3 pages of the investigation not already included, when the segmenter returned neither `narrative_pages` nor `nrhp_pages`. This gives the extractor a broader view in the failure cases without sending the full document. The parameter is `narrative_fallback=3` and can be tuned at the call site.
+
+**Root cause and recommended fix:**
+
+The 14b text model misses Pass 3 (narrative pages) and Pass 4 (NRHP pages) assignments on a meaningful fraction of investigations — particularly older or terse single-investigation forms where the narrative is short and the eligibility field is a checkbox rather than prose discussion. The model appears to classify these pages as "no narrative present" rather than correctly identifying the eligibility checkbox page as a narrative or NRHP page.
+
+**Recommended model upgrade for text passes 2–4: `qwen2.5:32b`.** The 32B model is noticeably better at recognizing page-type structure in sparse or ambiguous forms. The page-selection problem is fundamentally a model-capacity issue at the segmentation layer, not a prompt issue.
+
+---
+
 ## Relationship to site_coder
 
 `site_form_segmenter` is upstream of `site_coder`. It focuses entirely on segmentation quality and produces a page map that can be used to route coding calls to the right pages. `site_coder` currently runs its own internal segmentation as part of the coding pipeline; the intent is that a verified segmentation map from this tool can eventually replace that step, ensuring coding always works from correctly identified pages.
