@@ -30,7 +30,8 @@ import argparse
 import json
 import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -162,6 +163,12 @@ def main():
         "num_ctx_max":   num_ctx_max,
     }
 
+    run_started = datetime.now(timezone.utc)
+    run_t0 = time.monotonic()
+    site_timings: list[dict] = []
+    n_processed = 0
+    n_skipped = 0
+
     for trinomial in trinomials:
         entry    = groups[trinomial]
         txt_path = entry["txt"]
@@ -170,12 +177,15 @@ def main():
 
         if seg_file.exists() and not args.force:
             print(f"  [skip] {trinomial} — exists")
+            n_skipped += 1
             continue
 
         pages = parse_pages(txt_path)
         if not pages:
             print(f"  [warn] {trinomial}: no page markers in {txt_path.name}")
             continue
+
+        site_t0 = time.monotonic()
 
         contact_sheet: str = ""
         effective_mode = mode
@@ -221,13 +231,48 @@ def main():
             seg_model=(vision_model if effective_mode == "vision" else text_model),
             seg_type="site_form",
         )
-        print(f"  [done] {trinomial} — {len(segments)} investigation(s)")
 
+        site_elapsed = time.monotonic() - site_t0
+        n_inv = len(segments)
+        site_timings.append({
+            "trinomial": trinomial,
+            "seconds": round(site_elapsed, 2),
+            "investigations": n_inv,
+        })
+        n_processed += 1
+        print(f"  [done] {trinomial} — {n_inv} investigation(s) ({site_elapsed:.1f}s)")
+
+    run_elapsed = time.monotonic() - run_t0
     stats   = get_stats()
     total   = stats["prompt_tokens"] + stats["completion_tokens"]
     elapsed = stats["elapsed_s"]
     speed   = stats["completion_tokens"] / elapsed if elapsed > 0 else 0
     print(f"\nTokens: {total:,}  ({stats['completion_tokens']:,} generated)  Speed: {speed:.1f} tok/s")
+
+    avg_per_site = round(run_elapsed / n_processed, 2) if n_processed else None
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps({
+            "run_id":               run_dir.name,
+            "started_at":           run_started.isoformat(),
+            "completed_at":         datetime.now(timezone.utc).isoformat(),
+            "elapsed_seconds":      round(run_elapsed, 1),
+            "mode":                 mode,
+            "text_model":           text_model,
+            "vision_model":         vision_model if mode == "vision" else None,
+            "n_sites_processed":    n_processed,
+            "n_sites_skipped":      n_skipped,
+            "avg_seconds_per_site": avg_per_site,
+            "token_stats": {
+                "prompt_tokens":     stats["prompt_tokens"],
+                "completion_tokens": stats["completion_tokens"],
+                "total_tokens":      total,
+                "tokens_per_second": round(speed, 1),
+            },
+            "site_timings":         site_timings,
+        }, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
     print(f"\nDone.  Run directory -> {out_dir}")
 
 

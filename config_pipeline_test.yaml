@@ -1,0 +1,11 @@
+# Pipeline test — segment 10 forms from chunk_3
+input_dir: 'C:\Users\jpaige\Desktop\local_repositories\2024_forms_chunk_3_surya_docling_5_15_2026\2024_forms_chunk_3_surya_docling_5_15_2026'
+output_dir: 'C:\Users\jpaige\Desktop\research_repositories\site_form_segmenter\runs'
+trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
+
+mode: 'text'
+page_truncation_chars: 3000
+base_url: 'http://localhost:11434'
+text_model: 'qwen2.5:14b'
+temperature: 0.2
+timeout_seconds: 1800
