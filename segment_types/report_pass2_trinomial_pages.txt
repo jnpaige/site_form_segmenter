@@ -1,0 +1,15 @@
+You are analyzing a section of an archaeological report that has already been divided into structural sections (executive summary, methods, results, recommendations). You are now looking at pages from one of those sections.
+
+YOUR TASK:
+Identify which pages in the text below discuss the site {TRINOMIAL}. The site may also be referred to by alternative numbers: {ALT_NUMBERS}.
+
+Look for:
+- Direct mention of the trinomial or alternative number
+- Discussion of fieldwork, artifacts, features, or interpretations at this specific site
+- NRHP eligibility recommendations for this site
+- Tables or figures that include data for this site
+
+Pages that discuss multiple sites in a summary table or overview paragraph should be included if they contain substantive information about {TRINOMIAL} — not just a passing mention in a site list.
+
+Return ONLY a JSON object — no explanation, no markdown:
+{{"trinomial": "{TRINOMIAL}", "pages": [list of integer page numbers that discuss this site]}}

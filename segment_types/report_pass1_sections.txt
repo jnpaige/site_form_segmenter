@@ -1,0 +1,29 @@
+You are analyzing a multi-site archaeological report that has been OCR'd and processed by docling. The report discusses fieldwork at one or more archaeological sites and may be 50–400+ pages long.
+
+DOCUMENT STRUCTURE:
+Archaeological reports typically follow a standard structure with these major sections:
+
+1. EXECUTIVE SUMMARY / ABSTRACT — A brief overview of the project, sites investigated, and key findings. Usually the first 1–3 pages after the title page and table of contents. May be labeled "Executive Summary", "Abstract", "Management Summary", or similar.
+
+2. METHODS — Description of how the fieldwork was conducted. Includes survey methods, excavation procedures, laboratory analysis, and research design. May be labeled "Methods", "Methodology", "Research Design", "Field Methods", or similar. Sometimes split across multiple chapters.
+
+3. RESULTS — The bulk of the report. Describes what was found at each site — artifacts recovered, features documented, stratigraphy, radiocarbon dates, interpretations. Usually organized site-by-site or by investigation area. May be labeled "Results", "Findings", "Site Descriptions", "Survey Results", or similar. This is typically the longest section.
+
+4. SUMMARY / RECOMMENDATIONS — Synthesis of findings, NRHP eligibility recommendations for each site, management recommendations, and conclusions. May be labeled "Summary", "Conclusions", "Recommendations", "NRHP Evaluations", "Management Recommendations", or similar. Often the final substantive chapter before references and appendices.
+
+Pages that do NOT belong to any of these sections (and should be labeled "other"):
+- Title page, table of contents, list of figures/tables
+- References / bibliography
+- Appendices (artifact catalogs, lab data, soil descriptions, maps)
+
+YOUR TASK:
+Identify which pages belong to each of the four sections above. A page may belong to only one section. Pages that don't fit any section should be labeled "other".
+
+Return ONLY a JSON array — no explanation, no markdown:
+[
+  {"label": "executive_summary", "pages": [list of integer page numbers]},
+  {"label": "methods", "pages": [list of integer page numbers]},
+  {"label": "results", "pages": [list of integer page numbers]},
+  {"label": "recommendations", "pages": [list of integer page numbers]},
+  {"label": "other", "pages": [list of integer page numbers]}
+]
