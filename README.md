@@ -1,114 +1,38 @@
 # site_form_segmenter
 
-Louisiana archaeological site form PDFs regularly contain multiple investigations in a single file — a 2016 update appended behind a 1996 original, for example. Before those documents can be reliably coded against a standardized codebook, you need to know where each investigation starts and ends, and which pages within each investigation are the structured form, the narrative, and the NRHP eligibility discussion.
+Louisiana archaeological site form PDFs regularly contain multiple investigations in a single file — a 2016 update appended behind a 1996 original, for example. Before those documents can be reliably coded against a standardized codebook, you need to know where each investigation starts and ends, and which pages within each investigation are the structured form, the narrative, and the NRHP eligibility discussion. This tool solves that segmentation problem as a standalone step, separate from any coding pipeline. Its output — a page map showing investigation boundaries and page-type assignments — feeds into [text_coding_program](https://github.com/jnpaige/text_coding_program) for human coding and into downstream extraction and coding tools that need to know which pages to read for which purpose.
 
-This tool solves that segmentation problem as a standalone step, separate from any coding pipeline. The output — a page map showing investigation boundaries and page-type assignments — is designed to feed downstream into `site_coder` or any other tool that needs to know which pages to read for which purpose.
+This tool takes the output of [pdf_ocr](https://github.com/jnpaige/pdf_ocr) as its input. Every site directory produced by pdf_ocr contains a `text_docling.txt` file with page-indexed OCR text and an `_ocr.pdf` file with a searchable text layer. The segmenter reads both.
+
+---
 
 ## What it does
 
-A 4-pass approach, each pass handling one narrow question:
+The segmenter runs four focused passes over each document, each handling one narrow question. Pass 1 identifies where each investigation begins and ends and which pages belong to it. If Pass 1 leaves any pages unclaimed — which happens most often with page 0 or multi-page gaps in long documents — a gap-fill step runs a second prompt over just those pages and assigns them to the nearest investigation. Passes 2 through 4 work within each investigation: finding the structured site record form page, the narrative prose pages, and the NRHP eligibility discussion pages respectively.
 
-| Pass | Model | Task |
-|---|---|---|
-| 1 | vision or text | Identify each investigation's starting page, and the contiguous range of pages that belong to it |
-| 1b | text (only if needed) | Gap-fill: re-assign any pages Pass 1 left unclaimed |
-| 2 | text | Find the structured site record form page within each investigation |
-| 3 | text | Find narrative prose pages (excluding the form page) |
-| 4 | text | Find NRHP eligibility discussion pages |
+Dividing segmentation into focused passes lets a small model handle each one reliably. Pass 1 is the hardest because it has to detect where one investigation ends and the next begins, which is where the vision mode option helps. Passes 2–4 are straightforward page-type classification tasks that an 8b text model handles well.
 
-Dividing segmentation into focused passes lets a small model handle each one reliably. Pass 1 is the hardest — it has to detect where one investigation ends and the next begins — which is where the vision model option helps. Passes 2–4 are straightforward page-type classification tasks that an 8b text model handles well.
+The page types that come out of segmentation — `form_pages`, `narrative_pages`, `nrhp_pages`, and the full `pages` list — are discovered dynamically by downstream tools. Any key ending in `_pages` in the segment JSON is treated as a valid page scope, so the system generalizes to new page types without code changes.
 
-### Page-coverage guarantee
-
-After Pass 1 returns its investigation list, `segmenter.py` checks that every
-page in the document is claimed by some investigation. If any pages are left
-unassigned (most commonly page 0, or a multi-page run in the middle of a long
-document), it runs a second prompt (`site_form_pass1_gapfill.txt`) over just
-those pages plus a couple pages of surrounding context, asking the model to
-assign them to one of the bordering investigations or to a new one. Anything
-still unassigned after that is snapped to the nearest investigation by page
-distance. The result: every page always ends up in exactly one investigation's
-`pages` list — no pages are silently dropped.
+---
 
 ## Two modes
 
-**`vision` (default):** `llama3.2-vision:11b` receives a single contact sheet image for Pass 1 — all PDF pages tiled in a grid (left-to-right, top-to-bottom) with each thumbnail labeled with its page number in red. The vision model sees the full visual layout of the document at once and returns investigation boundaries by page number. Passes 2–4 use `llama3.1:8b` on the existing OCR text. Requires `PyMuPDF` and the PDF file alongside `text_docling.txt`.
+In vision mode, a vision model receives a single contact sheet image for Pass 1 — all PDF pages tiled in a grid with each thumbnail labeled with its page number in red. The vision model sees the full visual layout of the document at once and returns investigation boundaries by page number. Passes 2–4 then run on OCR text with a text model. Vision mode requires PyMuPDF and the original PDF file alongside `text_docling.txt`. If vision mode is selected but no PDF is found for a site, that site automatically falls back to text mode for Pass 1.
 
-**`text`:** `llama3.1:8b` runs all 4 passes on OCR text only. No PDF rendering, no PyMuPDF. Faster, lower memory. Good baseline and useful when PDFs are not available.
+In text mode, all four passes run on OCR text only — no PDF rendering, no PyMuPDF. This is faster, uses less memory, and is a good baseline for comparing against vision results.
 
-If `vision` mode is selected but no PDF is found in a site directory, that site automatically falls back to text mode for Pass 1.
-
-## Input
-
-The same directory structure produced by `pdf_ocr`:
-
-```
-<input_dir>/
-  16VN1452/
-    text_docling.txt       OCR text with === Page N === markers (required)
-    16VN1452_ocr.pdf       rendered PDF (required for vision mode)
-    ...
-  16WN385/
-    text_docling.txt
-    16WN385_ocr.pdf
-    ...
-```
-
-## Output
-
-Each run creates a versioned directory under `output_dir` (or `./runs` if
-`output_dir` is not set in the config):
-
-```
-runs/
-  20260527_13_abaf0f4/
-    config.yaml                        config snapshot for this run
-    vision__llama3.2-vision_11b__llama3.1_8b/
-      prompts.yaml                     every prompt used in this run
-      segmentation_map.md              human-readable page map (appended per site)
-      segments.csv                     machine-readable segment table (appended per site)
-      16VN1452.segments.json           full structured output for this site
-      16WN385.segments.json
-      ...
-```
-
-### `segmentation_map.md`
-
-The primary output for human review. One section per site:
-
-```markdown
-## 16WN385
-
-**2016 Phase I Survey Update** (2016) · *text_docling.txt*
-- All pages (8): 0, 1, 2, 3, 4, 5, 6, 7
-- Form pages: 0
-- Narrative pages: 5
-- NRHP pages: 5
-
-**1996 Site Record** (1996) · *text_docling.txt*
-- All pages (3): 8, 9, 10
-- Form pages: 8
-- Narrative pages: 9
-- NRHP pages: 9
-```
-
-### `segments.csv`
-
-Machine-readable version of the same data. One row per investigation, columns: `trinomial`, `source_file`, `label`, `year`, `pages`, `page_count`, `form_pages`, `narrative_pages`, `nrhp_pages`. Page lists are semicolon-separated.
-
-### `<trinomial>.segments.json`
-
-Structured JSON per site with the same information plus metadata (run timestamp, models used). Intended for downstream consumption by coding pipelines.
+---
 
 ## Setup
 
 ### 1. Install Ollama and pull models
 
-```powershell
-# Install Ollama from https://ollama.com
+Install Ollama from [ollama.com](https://ollama.com), then pull the models you plan to use:
 
-ollama pull llama3.1:8b                  # text passes (passes 2-4, and all passes in text mode)
-ollama pull llama3.2-vision:11b          # vision pass 1 (vision mode only, ~7.8 GB)
+```powershell
+ollama pull qwen2.5:14b          # recommended text model for all passes
+ollama pull llama3.2-vision:11b  # vision pass 1 only (~7.8 GB)
 ```
 
 ### 2. Install uv and sync dependencies
@@ -117,85 +41,62 @@ ollama pull llama3.2-vision:11b          # vision pass 1 (vision mode only, ~7.8
 # Windows — install uv once per machine
 winget install astral-sh.uv
 
-# In the repo directory — creates .venv and installs all dependencies including PyMuPDF
-cd site_form_segmenter
+# In the repo directory
 uv sync
 ```
 
 ```bash
 # Mac/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-cd site_form_segmenter
 uv sync
 ```
 
-### 3. Run with uv run
+If you prefer to activate the venv manually instead of using `uv run`, run `.venv\Scripts\activate` on Windows or `source .venv/bin/activate` on Mac/Linux, then use `python segmenter.py` directly.
 
-**Always use `uv run` to launch the script.** This ensures the correct virtual environment (the one `uv sync` just built) is used, regardless of what other venvs may be active in your shell:
-
-```powershell
-uv run python segmenter.py
-```
-
-If you prefer to activate the venv manually instead:
-
-```powershell
-# Windows
-.venv\Scripts\activate
-python segmenter.py
-
-# Mac/Linux
-source .venv/bin/activate
-python segmenter.py
-```
-
-### 4. Configure paths
+### 3. Configure paths
 
 Edit `config.yaml`:
 
 ```yaml
-input_dir: 'path/to/pdf_ocr/docling_output'
-mode: 'vision'          # or 'text'
-text_model:   'llama3.1:8b'
+input_dir: 'path/to/pdf_ocr/output'
+mode: 'text'             # or 'vision'
+text_model: 'qwen2.5:14b'
 vision_model: 'llama3.2-vision:11b'
 ```
 
+---
+
 ## Usage
 
-All examples use `uv run python segmenter.py`. If your venv is already activated, `python segmenter.py` works identically.
-
 ```powershell
-# All sites, mode from config.yaml (default: vision)
+# All sites, mode from config.yaml
 uv run python segmenter.py
 
 # Single site — fastest way to verify segmentation quality before a full run
 uv run python segmenter.py --trinomial 16WN385
 
-# Text mode only — no PDF rendering, no PyMuPDF, faster
+# Text mode only
 uv run python segmenter.py --mode text
 
-# Single site in text mode
-uv run python segmenter.py --trinomial 16WN385 --mode text
-
-# Single site in vision mode
-uv run python segmenter.py --trinomial 16WN385 --mode vision
+# Vision mode
+uv run python segmenter.py --mode vision
 
 # Re-run everything, ignoring existing output files
 uv run python segmenter.py --force
 
 # Use a different config file
 uv run python segmenter.py --config config_test.yaml
-
-# Single site with a test config
-uv run python segmenter.py --config config_test.yaml --trinomial 16VN1452
 ```
 
-**Recommended first-run workflow:**
-1. Run one site in text mode first to confirm the pipeline works end-to-end: `uv run python segmenter.py --trinomial 16WN385 --mode text`
-2. Check `runs/<run_id>/.../segmentation_map.md` — verify the investigation boundaries look right
-3. Run the same site in vision mode: `uv run python segmenter.py --trinomial 16WN385 --mode vision --force`
-4. Compare the two maps to see whether vision improves Pass 1 boundary detection
-5. If vision mode looks good, run all sites: `uv run python segmenter.py`
+A good first-run workflow is to process one site in text mode first to confirm the pipeline works end-to-end, then check the `segmentation_map.md` to verify the investigation boundaries look right, then try the same site in vision mode with `--force` to compare whether vision improves Pass 1 boundary detection.
+
+---
+
+## Output
+
+Each run creates a versioned directory. Inside it, one subdirectory is created per model condition. The primary output for human review is `segmentation_map.md`, which shows one section per site listing each investigation, its page range, and its classified page types. The machine-readable equivalent is `segments.csv` with one row per investigation. Each site also gets a `<trinomial>.segments.json` file with the full structured output including run metadata, which is what downstream coding pipelines consume.
+
+---
 
 ## Configuration reference
 
@@ -205,131 +106,45 @@ output_dir:        'path/to/output'        # optional; defaults to ./runs if omi
 trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'   # Louisiana format; adjust for other states
 
 mode: 'vision'           # 'vision' or 'text'
-page_truncation_chars: 500   # chars of OCR text per page shown in text passes
-                             # (3000 recommended for qwen2.5:14b — see below)
-pdf_thumb_width:       240   # width in pixels of each page thumbnail in the contact sheet grid;
-                             # 3 columns × 240px = 720px wide total image sent to the vision model
+page_truncation_chars: 3000  # chars of OCR text per page shown in text passes
+pdf_thumb_width:       240   # width in pixels of each page thumbnail in the contact sheet
 
 base_url:        'http://localhost:11434'
 vision_model:    'llama3.2-vision:11b'
-text_model:      'llama3.1:8b'
-temperature:     0.05
+text_model:      'qwen2.5:14b'
+temperature:     0.2
 timeout_seconds: 1800
 ```
 
-`input_dir`/`output_dir` can be absolute paths, useful for keeping output as
-a sister directory to the input rather than nested under the repo's `runs/`.
-`config_chunk1.yaml` / `config_chunk3.yaml` are examples of chunk-specific
-configs passed via `--config`.
-
-## Troubleshooting
-
-### `500 Internal Server Error` on vision pass 1
-
-Ollama's llama3.2-vision endpoint returns a 500 when multiple images are passed in a single request. This tool avoids that by always sending exactly one image: a contact sheet that tiles all pages into a single JPEG grid. If you see a 500 error:
-
-- Check that Ollama is running and the model is fully loaded: `ollama list`
-- Try the site in text mode to isolate whether the issue is vision-specific: `uv run python segmenter.py --trinomial 16VN1451 --mode text`
-- If the contact sheet image is very large (many-page PDF), reduce `pdf_thumb_width` in `config.yaml` (try `160` or `120`) to shrink the composite image
-
-The script logs `[warn] pass1 failed — single segment fallback` and continues rather than crashing; a 500 on Pass 1 means the whole document is treated as one investigation, which is safe but loses boundary detection for multi-investigation PDFs.
-
-### `PyMuPDF is not installed in the current Python environment`
-
-The script checks for PyMuPDF at startup and exits immediately with the Python path if it's missing. The most common cause is running `python segmenter.py` with a shell that has a different project's venv active.
-
-Fix: use `uv run python segmenter.py` instead — uv selects the correct venv automatically. If the `.venv` doesn't exist yet, run `uv sync` first.
-
-### Script hangs mid-run
-
-The text model passes (2–4) can take 30–120 seconds per investigation depending on page count and model speed. The script prints `[done] <trinomial>` when each site finishes. If it appears to hang, it is likely waiting for an Ollama response — check that Ollama is running and not already processing another request. Interrupt with Ctrl+C; completed sites are already saved and will be skipped on the next run.
-
-## Segment type prompts
-
-All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code.
-
-| File | Mode | Pass | Task |
-|---|---|---|---|
-| `site_form_pass1_vision.txt` | vision | 1 | Boundary detection from page images |
-| `site_form_pass1_boundaries.txt` | text | 1 | Boundary detection from OCR text |
-| `site_form_pass1_gapfill.txt` | both | 1b | Assign any pages Pass 1 left unclaimed (only runs if needed) |
-| `site_form_pass2_form_page.txt` | both | 2 | Identify structured site record form page |
-| `site_form_pass3_narrative.txt` | both | 3 | Identify narrative prose pages |
-| `site_form_pass4_nrhp.txt` | both | 4 | Identify NRHP eligibility discussion pages |
-
-Pass 3 receives the Pass 2 result injected via `{form_pages}` in the prompt template so the model knows which page to exclude.
+---
 
 ## Recommended models
 
-`config.yaml` defaults to `qwen2.5:14b` (the recommended model — best JSON instruction-following at this size). The older `llama3.1:8b` works but struggles with clean JSON output on ambiguous documents. Other options for `text_model` (all passes in text mode, passes 2–4 in vision mode):
-
-| Model | Size | Notes |
-|---|---|---|
-| `qwen2.5:14b` | ~9 GB | Best JSON instruction-following at this size; recommended upgrade from 8b |
-| `phi4:14b` | ~9 GB | Strong reasoning per parameter; good at document structure tasks |
-| `deepseek-r1:14b` | ~9 GB | Slower (chain-of-thought), but more reliable on ambiguous boundary cases |
-| `qwen2.5:32b` | ~20 GB | Noticeably better than 14b at recognizing multi-investigation structure shifts |
-
-```powershell
-ollama pull qwen2.5:14b
-```
-
-Then set in `config.yaml`:
-```yaml
-text_model: 'qwen2.5:14b'
-```
-
-## 2026-06-16 evaluation — downstream error analysis
-
-A stratified sample of 20 site forms was manually reviewed against extraction outputs from [site_attribute_extractor](https://github.com/jnpaige/site_attribute_extractor) to estimate extraction error rates. Several errors traced back to segmenter page-selection failures rather than extraction model failures.
-
-**Segmenter-sourced errors identified:**
-
-The most impactful errors occurred when neither `narrative_pages` nor `nrhp_pages` were populated for a segment. In those cases, the extractor sees only `form_pages` — often just the header/checkbox page — and misses the eligibility field entirely. Confirmed examples:
-
-- **16VN2779**: segmenter produced only `form_pages`; the "State or National Register Eligibility: Not eligible" field was on a page not included. Extractor returned "undetermined."
-- **16VN577**: same pattern; explicit "Not eligible" field on a narrative page the segmenter did not identify.
-
-These are not extractor prompt failures — the model correctly returned "undetermined" given the text it was shown. The page-selection step is where the information was lost.
-
-**Downstream bandaid applied (site_attribute_extractor `lib/page_parser.py`):**
-
-`relevant_pages()` in the extractor now supplements `form_pages` with the first 3 pages of the investigation not already included, when the segmenter returned neither `narrative_pages` nor `nrhp_pages`. This gives the extractor a broader view in the failure cases without sending the full document. The parameter is `narrative_fallback=3` and can be tuned at the call site.
-
-**Root cause and recommended fix:**
-
-The 14b text model misses Pass 3 (narrative pages) and Pass 4 (NRHP pages) assignments on a meaningful fraction of investigations — particularly older or terse single-investigation forms where the narrative is short and the eligibility field is a checkbox rather than prose discussion. The model appears to classify these pages as "no narrative present" rather than correctly identifying the eligibility checkbox page as a narrative or NRHP page.
-
-**Recommended model upgrade for text passes 2–4: `qwen2.5:32b`.** The 32B model is noticeably better at recognizing page-type structure in sparse or ambiguous forms. The page-selection problem is fundamentally a model-capacity issue at the segmentation layer, not a prompt issue.
+The `qwen2.5:14b` model gives the best JSON instruction-following at its size and is the recommended default. The older `llama3.1:8b` works but produces less reliable JSON on ambiguous documents. For text passes 2–4, `phi4:14b` is also a strong option. If boundary detection quality is a priority, `qwen2.5:32b` is noticeably better than 14b at recognizing multi-investigation structure shifts and is worth the extra VRAM.
 
 ---
 
-## Relationship to site_coder
+## Troubleshooting
 
-`site_form_segmenter` is upstream of `site_coder`. It focuses entirely on segmentation quality and produces a page map that can be used to route coding calls to the right pages. `site_coder` currently runs its own internal segmentation as part of the coding pipeline; the intent is that a verified segmentation map from this tool can eventually replace that step, ensuring coding always works from correctly identified pages.
+If you see a `500 Internal Server Error` on vision Pass 1, check that Ollama is running and the model is fully loaded with `ollama list`. If the contact sheet image is very large due to a many-page PDF, reduce `pdf_thumb_width` in `config.yaml` to shrink the composite image. The script logs a fallback warning and continues rather than crashing — a 500 on Pass 1 means the whole document is treated as one investigation.
 
-## Project structure
+If `PyMuPDF is not installed` appears at startup, the most common cause is running `python segmenter.py` with a different project's venv active. Use `uv run python segmenter.py` instead — uv selects the correct venv automatically.
 
-```
-site_form_segmenter/
-  segmenter.py           main script
-  config.yaml            configuration
-  pyproject.toml         dependencies (httpx, pyyaml, PyMuPDF)
-  lib/
-    grouper.py           finds trinomial dirs; returns txt path + pdf path
-    page_parser.py       splits text_docling.txt on === Page N === markers
-    pdf_renderer.py      renders all PDF pages as a single contact sheet JPEG via PyMuPDF
-    ollama_client.py     Ollama REST wrapper: text + vision, token stats
-    reporter.py          writes segmentation_map.md and segments.csv
-  segment_types/
-    site_form_pass1_vision.txt
-    site_form_pass1_boundaries.txt
-    site_form_pass1_gapfill.txt
-    site_form_pass2_form_page.txt
-    site_form_pass3_narrative.txt
-    site_form_pass4_nrhp.txt
-  runs/                  gitignored — versioned run outputs (or output_dir, if set)
-```
+If the script hangs mid-run, it is most likely waiting for an Ollama response. Text model passes can take 30–120 seconds per investigation depending on page count and model speed. Interrupt with Ctrl+C; completed sites are already saved and will be skipped on the next run.
+
+---
+
+## Segment type prompts
+
+All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts (for longer multi-site documents) are prefixed `report_` and implement a two-stage approach described in the [pdf_ocr README](https://github.com/jnpaige/pdf_ocr).
+
+---
+
+## 2026-06-16 evaluation notes
+
+A stratified sample of 20 site forms was manually reviewed against extraction outputs to estimate error rates. Several errors traced back to segmenter page-selection failures rather than extraction model failures. The most impactful errors occurred when neither `narrative_pages` nor `nrhp_pages` were populated for a segment — in those cases, extractors see only the checkbox form page and miss eligibility fields on narrative pages. The 14b text model misses these assignments on a meaningful fraction of terse single-investigation forms. The `qwen2.5:32b` model is substantially better at this and is recommended for production runs where page-selection accuracy matters.
+
+---
 
 ## Dependencies
 
