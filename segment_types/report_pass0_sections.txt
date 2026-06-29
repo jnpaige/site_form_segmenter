@@ -1,0 +1,52 @@
+You are analyzing the heading structure of an archaeological Phase II report produced for the Kisatchie National Forest, Louisiana. These reports document cultural resource investigations — site surveys, test excavations, and NRHP eligibility assessments — conducted before ground-disturbing activities on National Forest lands.
+
+ABOUT THE INPUT:
+The heading list below was automatically extracted from the report's text file. That text file was produced by running the report PDF through a Surya OCR and Docling pipeline, which recognizes headings in the document layout and marks them with "##" in the output. The heading list records each heading and the page it appears on (0-indexed from the start of the PDF). Not every heading is meaningful — some are OCR artifacts, some are repeated entries from a table of contents on the first few pages, and some are sub-headings within a section that do not represent a new top-level section. You do not need to worry about heading depth or nesting; treat the list as a flat sequence of labeled page markers.
+
+Each heading entry may include a short text excerpt after a ` | ` separator — the first non-heading text that follows that heading on its page. Use this to distinguish real section headings (followed by prose) from table-of-contents listings (followed by dot-leaders and page numbers like `.......ii   4`).
+
+ABOUT THE CORPUS:
+These reports follow a standard CRM (cultural resource management) structure, though the exact headings vary by author, firm, and decade. Older reports (1980s–1990s) tend to use short, all-caps headings with no numbering. Newer reports (2000s–present) tend to use numbered hierarchical headings (e.g., "6.0 16RA174", "6.1 Site Setting", "6.4 Results"). Despite this variation, the underlying sections are consistent:
+
+- EXECUTIVE SUMMARY / ABSTRACT: A brief overview at the start of the report. May be labeled "Abstract", "Executive Summary", "Management Summary", or "Summary" appearing in the first few pages.
+
+- METHODS: How the fieldwork was conducted. Covers survey design, shovel testing procedures, excavation methods, and laboratory analysis. May be labeled "Methods", "Methodology", "Field Methods", "Survey Methods", "Research Design", or split across multiple numbered sub-sections (e.g., "5.0 Methodology", "5.1 Field Methodology").
+
+- RESULTS: The substantive findings of the investigation. This is typically the longest section and is often organized by site. Covers artifact distributions, feature descriptions, stratigraphy, and interpretations. May be labeled "Results", "Findings", "Site Descriptions", "Results of Investigation", "Results of Testing", or as numbered site chapters (e.g., "6.0 16RA174" through "28.0 16RA612"). Site-specific sub-headings like "Shovel Test Unit No. 1", "Ceramics", "Lithics", and "Stratigraphy" are part of results even if they appear as separate headings.
+
+- RECOMMENDATIONS: The report's management conclusions, including NRHP eligibility recommendations for each site. May be labeled "Recommendations", "Summary and Recommendations", "Conclusions", "NRHP Evaluation", "Management Recommendations", "Significance", "Statement of Significance", or sub-sections like "6.6 Recommendations" within each site chapter. When each site chapter ends with its own recommendations sub-heading, treat those pages collectively as the recommendations section.
+
+- OTHER: Everything else — introduction, environmental background, cultural history, previous investigations, references, appendices, tables of contents, lists of figures. These pages are not of primary interest for extraction.
+
+YOUR TASK:
+Review the heading list and identify which pages belong to each of the five section types above. Use the heading text and page numbers to infer where each section begins and ends. A section ends where the next logically distinct section begins.
+
+Important:
+- Sub-headings within a section (e.g., "Shovel Test Unit No. 1" inside Results) do not start a new section — they are internal structure.
+- When a heading appears in a table of contents — typically in the first 10 pages, often alongside other TOC entries on the same page, or when its text excerpt shows dot-leaders and page numbers rather than prose — it represents a listing, not the actual section start. Use the subsequent occurrence of the same heading on a later page as the actual section start. A heading with a prose excerpt is a real section start even if it appears on an early page.
+- If a section type is absent from the report, omit it from the output entirely.
+- In numbered reports where each site chapter has its own recommendations or summary sub-section (e.g., "6.5 Summary and Interpretations", "6.6 Recommendations", "7.5 Summary and Interpretations", "7.6 Recommendations"), keep each one as a separate entry in the output array with its own page list and a label that identifies which site it belongs to. Do not merge them.
+
+Return ONLY a JSON object — no explanation, no markdown. Each key is a section type; its value is an array of one or more segment objects, each with a label and page list:
+{
+  "executive_summary": [
+    {"label": "Abstract", "pages": [4, 5]}
+  ],
+  "methods": [
+    {"label": "5.0 Methodology", "pages": [22, 23, 24, 25, 26, 27, 28, 29]}
+  ],
+  "results": [
+    {"label": "6.0 16RA174", "pages": [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62]},
+    {"label": "7.0 16RA176", "pages": [63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]}
+  ],
+  "recommendations": [
+    {"label": "6.6 Recommendations — 16RA174", "pages": [61, 62]},
+    {"label": "7.6 Recommendations — 16RA176", "pages": [73, 74, 75]}
+  ],
+  "other": [
+    {"label": "Front matter and background", "pages": [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]}
+  ]
+}
+
+HEADING LIST:
+{HEADINGS}
