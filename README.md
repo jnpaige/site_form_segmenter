@@ -134,9 +134,80 @@ If the script hangs mid-run, it is most likely waiting for an Ollama response. T
 
 ---
 
+## Report segmentation
+
+Reports are a different document type from site forms and require a different segmentation approach. A single report may be 50 to 400 pages and discuss anywhere from one to over a hundred sites. The segmenter handles reports through `segment_reports_pass0.py`, a separate script from the 4-pass site form pipeline.
+
+The core design difference is context length. For site forms, the segmenter sends full page text because forms are short enough that context is not a concern. For reports, sending full text is impractical — a 400-page report's OCR output can exceed a 32k-token context window even before the system prompt. Pass 0 sidesteps this by sending only the heading map: the compact list of heading text and page numbers extracted by pdf_ocr into `headings.json`, typically 100–400 lines regardless of document length. Headings alone are sufficient to infer section boundaries because section starts are almost always explicitly headed.
+
+**The table-of-contents problem.** Older reports often list every chapter heading in a table of contents in the first few pages before the body text begins. A heading-only prompt will see each chapter heading twice: once in the TOC and once at the actual section start. Pass 0 resolves this by augmenting each heading entry with a short excerpt of the first non-heading body text on the same page — visible in the prompt as:
+
+```
+p   1  ABSTRACT          |  "The Research Institute, College of Pure..."
+p   3  SIGNIFICANCE       |  "Upon completion of the Phase I survey..."
+p   4  TABLE OF CONTENTS  |  "...........i   4  ..........ii   4"
+```
+
+A real section heading is followed by prose; a TOC listing is followed by dot-leaders and page numbers. This distinction lets the model reliably identify actual section starts even in documents from the early 1980s where the same heading appears on page 3 (TOC) and page 81 (actual section).
+
+**Applied to the Kisatchie Phase II corpus.** The Kisatchie National Forest Phase II report corpus spans 44 reports from 1978 to 2025, ranging from 14 to 825 pages. Reports from the 1970s–1980s use short all-caps headings with no numbering; later reports use numbered hierarchical sub-chapters. The `report_pass0_sections.txt` prompt lists recognized labels for each section type across the full date range — both "SIGNIFICANCE" (1978) and "6.6 Recommendations" (2024) map to the same recommendations section. The `--config` flag replaces per-run CLI arguments for corpus-wide runs:
+
+```yaml
+# config_reports.yaml
+input_dir:       'G:\path\to\reports_ocr_docling\All'
+output_dir:      'runs'
+model:           'qwen2.5:32b'
+temperature:     0.05
+timeout_seconds: 1800
+num_ctx:         32768
+```
+
+```powershell
+# Full corpus run (skips reports that already have output)
+uv run python segment_reports_pass0.py --config config_reports.yaml
+
+# Single report — fastest way to verify output before a corpus run
+uv run python segment_reports_pass0.py --config config_reports.yaml --report "22-0479_Hartfield et al. 1978"
+
+# Re-run everything
+uv run python segment_reports_pass0.py --config config_reports.yaml --force
+```
+
+Output goes to `runs/<YYYYMMDD_HHMM_gitsha>/<model>/`, one `<report_name>.segments.json` per report. The format is the same shared segments.json structure used by the site form pipeline, with section types encoded as `<section>_pages` keys rather than investigation-level page types:
+
+```json
+{
+  "report": "22-0479_Hartfield et al. 1978",
+  "n_headings": 339,
+  "n_pages": 180,
+  "segments": [
+    {
+      "label": "22-0479_Hartfield et al. 1978",
+      "pages": [1, 2, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 78, 79, 81, 83, 85],
+      "executive_summary_pages": [1, 2],
+      "methods_pages":           [67, 68, 69, 70, 71],
+      "results_pages":           [73, 74, 75, 76, 77, 78, 79],
+      "recommendations_pages":   [81, 83, 85],
+      "_section_detail": {
+        "executive_summary": [{"label": "ABSTRACT", "pages": [1]}, {"label": "MANAGEMENT SUMMARY", "pages": [2]}],
+        "recommendations":   [{"label": "RECORDED SITES", "pages": [81]}, {"label": "7. RECOMMENDATIONS", "pages": [85]}]
+      }
+    }
+  ]
+}
+```
+
+The single segment's `label` is the report directory name. `pages` is the union of all section pages (unclassified pages like front matter and appendices are excluded — they appear in neither `pages` nor any `_pages` key). `_section_detail` preserves the labeled sub-segments identified by the model (e.g. which specific headings bounded each section) for human review; it is ignored by downstream consumers. Because downstream tools discover `*_pages` keys dynamically, they consume this format with no code changes — the same path that reads `form_pages` and `narrative_pages` from site form segments also reads `results_pages` and `recommendations_pages` from report segments.
+
+**Trinomial extraction.** After pass 0 identifies the relevant pages, [site_vocab_extractor](https://github.com/jnpaige/site_vocab_extractor) scans those pages for site number mentions. The `results_pages` and `recommendations_pages` keys in the segments.json feed directly into the vocab extractor as a page filter, concentrating the search on pages most likely to contain substantive per-site discussion — for the 180-page Hartfield report this reduced the scan from 180 pages to 10.
+
+**Pass 2: per-trinomial page narrowing.** Once section page maps and a trinomial list are in hand, pass 2 identifies which pages within the results and recommendations sections discuss each individual site. It uses `report_pass2_trinomial_pages.txt` and iterates per trinomial, keeping each LLM call short and predictably sized. A script for this pass is in development.
+
+---
+
 ## Segment type prompts
 
-All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts (for longer multi-site documents) are prefixed `report_` and implement a two-stage approach described in the [pdf_ocr README](https://github.com/jnpaige/pdf_ocr).
+All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts are prefixed `report_`: `report_pass0_sections.txt` drives the heading-only section classifier, `report_pass1_sections.txt` is a full-text fallback for documents with sparse headings, and `report_pass2_trinomial_pages.txt` drives the per-trinomial page narrowing pass.
 
 ---
 

@@ -25,6 +25,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).parent / "lib"))
 from ollama_client import extract_json, get_stats, reset_stats
 from page_parser import parse_pages
@@ -147,30 +149,77 @@ def segment_report(
         print(f"  [error] {report_dir.name} — LLM returned no parseable JSON")
         return None
 
+    # Flatten LLM output {section_type: [{label, pages}]} into the shared
+    # segments.json format used across this pipeline.  Each section type
+    # becomes a <section>_pages key so downstream tools discover it the same
+    # way they discover form_pages / narrative_pages / nrhp_pages on site forms.
+    # The original labeled sub-segments are preserved in _section_detail for
+    # human review.
+    section_pages: dict[str, list[int]] = {}
+    section_detail: dict = {}
+    for section_type, entries in result.items():
+        if not isinstance(entries, list):
+            continue
+        flat: list[int] = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                flat.extend(int(p) for p in entry.get("pages", []))
+        if flat:
+            section_pages[f"{section_type}_pages"] = sorted(set(flat))
+            section_detail[section_type] = entries
+
+    all_pages = sorted({p for plist in section_pages.values() for p in plist})
+
     return {
         "report": report_dir.name,
         "n_headings": len(headings),
         "n_pages": n_pages,
-        "sections": result,
+        "segments": [
+            {
+                "label": report_dir.name,
+                "pages": all_pages,
+                **section_pages,
+                "_section_detail": section_detail,
+            }
+        ],
     }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input-dir", required=True, metavar="PATH",
+    ap.add_argument("--config", default=None, metavar="PATH",
+                    help="YAML config file (CLI flags override config values)")
+    ap.add_argument("--input-dir", default=None, metavar="PATH",
                     help="Root directory containing report subdirectories with headings.json")
     ap.add_argument("--report", default=None, metavar="NAME",
                     help="Process only this report directory (exact name)")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
-    ap.add_argument("--temperature", type=float, default=0.05)
-    ap.add_argument("--timeout", type=float, default=1800)
-    ap.add_argument("--num-ctx", type=int, default=32768)
+    ap.add_argument("--model", default=None)
+    ap.add_argument("--base-url", default=None)
+    ap.add_argument("--temperature", type=float, default=None)
+    ap.add_argument("--timeout", type=float, default=None)
+    ap.add_argument("--num-ctx", type=int, default=None)
     ap.add_argument("--force", action="store_true",
                     help="Re-run even if output already exists")
     args = ap.parse_args()
 
-    root = Path(args.input_dir)
+    # Load config file if provided; CLI flags override
+    cfg: dict = {}
+    if args.config:
+        cfg_path = Path(args.config)
+        if not cfg_path.exists():
+            sys.exit(f"Config not found: {cfg_path}")
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+
+    input_dir_str  = args.input_dir  or cfg.get("input_dir")
+    model          = args.model      or cfg.get("model",          DEFAULT_MODEL)
+    base_url       = args.base_url   or cfg.get("base_url",       DEFAULT_BASE_URL)
+    temperature    = args.temperature if args.temperature is not None else float(cfg.get("temperature",    0.05))
+    timeout        = args.timeout    if args.timeout    is not None else float(cfg.get("timeout_seconds", 1800))
+    num_ctx        = args.num_ctx    if args.num_ctx    is not None else int(cfg.get("num_ctx",           32768))
+
+    if not input_dir_str:
+        sys.exit("--input-dir is required (or set input_dir in config)")
+    root = Path(input_dir_str)
     if not root.is_dir():
         sys.exit(f"Not a directory: {root}")
 
@@ -193,13 +242,13 @@ def main() -> None:
     if not report_dirs:
         sys.exit(f"No headings.json files found under: {root}")
 
-    run_dir = _make_run_dir(Path("runs"))
-    model_slug = args.model.replace(":", "_").replace(".", "_")
+    run_dir = _make_run_dir(Path(cfg.get("output_dir", "runs")))
+    model_slug = model.replace(":", "_").replace(".", "_")
     model_dir = run_dir / model_slug
     model_dir.mkdir(exist_ok=True)
 
     print(f"\nRun dir   : {run_dir}")
-    print(f"Model     : {args.model}")
+    print(f"Model     : {model}")
     print(f"Reports   : {len(report_dirs)}\n")
 
     reset_stats()
@@ -209,7 +258,7 @@ def main() -> None:
     n_processed = 0
 
     for report_dir in report_dirs:
-        out_path = model_dir / f"{report_dir.name}.sections.json"
+        out_path = model_dir / f"{report_dir.name}.segments.json"
         if out_path.exists() and not args.force:
             print(f"  [skip] {report_dir.name}")
             continue
@@ -219,7 +268,7 @@ def main() -> None:
 
         result = segment_report(
             report_dir, prompt_template,
-            args.model, args.base_url, args.temperature, args.timeout, args.num_ctx,
+            model, base_url, temperature, timeout, num_ctx,
         )
 
         elapsed = time.monotonic() - t0
@@ -230,9 +279,10 @@ def main() -> None:
         out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
 
         # Summary line
-        sections = result.get("sections", {})
-        counts = {k: sum(len(e.get("pages", [])) for e in v) if isinstance(v, list) else 0
-                  for k, v in sections.items() if k != "other"}
+        seg = result["segments"][0]
+        counts = {k[:-len("_pages")]: len(v)
+                  for k, v in seg.items()
+                  if k.endswith("_pages") and k != "other_pages" and isinstance(v, list)}
         summary = "  ".join(f"{k}:{n}pp" for k, n in counts.items() if n > 0)
         print(f"{elapsed:.0f}s  |  {summary}")
 
@@ -248,7 +298,7 @@ def main() -> None:
             "started_at": run_started.isoformat(),
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "elapsed_seconds": round(run_elapsed, 1),
-            "model": args.model,
+            "model": model,
             "prompt_file": str(PROMPT_FILE),
             "input_dir": str(root),
             "n_reports_processed": n_processed,

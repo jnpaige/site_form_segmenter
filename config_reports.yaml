@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# config_reports.yaml — segment_reports_pass0.py
+# Phase II reports — full corpus run
+# ---------------------------------------------------------------------------
+# Usage:
+#   uv run python segment_reports_pass0.py --config config_reports.yaml
+#   uv run python segment_reports_pass0.py --config config_reports.yaml --force
+#   uv run python segment_reports_pass0.py --config config_reports.yaml --report "22-0479_Hartfield et al. 1978"
+# ---------------------------------------------------------------------------
+
+input_dir:   'G:\Shared drives\CRS_data\Kisatchie_data\Archaeology_site_forms\Phase_II_Reports_ocr_docling\All'
+output_dir:  'runs'
+
+model:           'qwen2.5:32b'
+base_url:        'http://localhost:11434'
+temperature:     0.05
+timeout_seconds: 1800
+num_ctx:         32768
