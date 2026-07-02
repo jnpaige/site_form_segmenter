@@ -136,11 +136,25 @@ If the script hangs mid-run, it is most likely waiting for an Ollama response. T
 
 ## Report segmentation
 
-Reports are a different document type from site forms and require a different segmentation approach. A single report may be 50 to 400 pages and discuss anywhere from one to over a hundred sites. The segmenter handles reports through `segment_reports_pass0.py`, a separate script from the 4-pass site form pipeline.
+Reports are a different document type from site forms and require a different segmentation approach. A single report may be 50 to 800+ pages and discuss anywhere from one to over a hundred sites. The segmenter handles reports through `segment_reports_pass0.py`, a separate script from the 4-pass site form pipeline. A full-text alternative approach is also available for reports where heading detection is sparse or unreliable.
 
-The core design difference is context length. For site forms, the segmenter sends full page text because forms are short enough that context is not a concern. For reports, sending full text is impractical — a 400-page report's OCR output can exceed a 32k-token context window even before the system prompt. Pass 0 sidesteps this by sending only the heading map: the compact list of heading text and page numbers extracted by pdf_ocr into `headings.json`, typically 100–400 lines regardless of document length. Headings alone are sufficient to infer section boundaries because section starts are almost always explicitly headed.
+### Why two strategies exist
 
-**The table-of-contents problem.** Older reports often list every chapter heading in a table of contents in the first few pages before the body text begins. A heading-only prompt will see each chapter heading twice: once in the TOC and once at the actual section start. Pass 0 resolves this by augmenting each heading entry with a short excerpt of the first non-heading body text on the same page — visible in the prompt as:
+For site forms, the segmenter sends the full page text of each document. Forms are short enough — typically 2–15 pages — that even a 50-page multi-investigation bundle fits comfortably in a 32k-token context window, and full page content is what makes investigation boundary detection reliable. The `_adaptive_page_trunc` mechanism in `segmenter.py` handles larger site form bundles automatically: it calculates the maximum characters-per-page that keeps the whole document visible in a single call, scaling down proportionally as page count grows. Every page remains visible; only its content is trimmed.
+
+Reports cannot be handled the same way. A 400-page report's OCR output exceeds a 32k-token context window many times over, and even adaptive truncation at 200 characters per page produces such compressed snippets that the model is effectively reading only the first line of each page. Two strategies address this differently:
+
+**Heading-based (pass 0, primary)** — Instead of page text, send only the heading map: the compact list of heading labels and page numbers extracted by pdf_ocr into `headings.json`, typically a few hundred lines regardless of document length. This keeps the prompt small while preserving the structural signal the model needs to identify section boundaries. Section starts are almost always explicitly headed, so heading text alone is usually sufficient. Very large reports with many headings are split into chunks of N headings, each processed in a separate call with results merged afterwards. This is the default for most reports.
+
+**Full-text (pass 1, fallback)** — Send actual page content, augmented with all headings, applying adaptive truncation to fit the entire document in one call. This preserves richer evidence for section inference — body text, transition sentences, artifact descriptions — at the cost of reduced content fidelity on long documents. Intended for reports where pdf_ocr heading detection was sparse or failed, leaving `headings.json` too thin to drive pass 0 reliably. The `report_pass1_sections.txt` prompt is available for this purpose; a script that applies it with adaptive truncation is in development.
+
+The practical trade-off is between coverage and content fidelity. Pass 0 sees the whole heading structure of a long document clearly, but only the headings. Pass 1 sees some body text per page across the whole document, but that content is increasingly truncated as document length grows. For most CRM reports — where section boundaries are explicitly marked with headings — pass 0 is the right choice. For poorly-headed documents (some 1970s–1980s reports use unnumbered all-caps headings that OCR occasionally misses), pass 1's content-based inference can recover what the heading map cannot.
+
+---
+
+### Heading-based approach (pass 0)
+
+`segment_reports_pass0.py` reads `headings.json` from each report directory and sends the heading list to the LLM as a compact page-indexed outline. Each entry optionally includes a short excerpt of the first non-heading body text on the same page. This excerpt resolves a common ambiguity in older reports:
 
 ```
 p   1  ABSTRACT          |  "The Research Institute, College of Pure..."
@@ -150,16 +164,19 @@ p   4  TABLE OF CONTENTS  |  "...........i   4  ..........ii   4"
 
 A real section heading is followed by prose; a TOC listing is followed by dot-leaders and page numbers. This distinction lets the model reliably identify actual section starts even in documents from the early 1980s where the same heading appears on page 3 (TOC) and page 81 (actual section).
 
+**Chunking for large reports.** Reports exceeding `chunk_size_headings` in their heading count are split into sequential heading slices, each processed as a separate LLM call. Results are merged by concatenating the entry lists for each section type. The threshold is set at the heading count of the largest single-call success observed in corpus testing — for the Kisatchie corpus this was 515 headings (Morehead et al. 2003, 591 pages). Reports below that threshold run as a single call; larger reports split automatically with no change in output format.
+
 **Applied to the Kisatchie Phase II corpus.** The Kisatchie National Forest Phase II report corpus spans 44 reports from 1978 to 2025, ranging from 14 to 825 pages. Reports from the 1970s–1980s use short all-caps headings with no numbering; later reports use numbered hierarchical sub-chapters. The `report_pass0_sections.txt` prompt lists recognized labels for each section type across the full date range — both "SIGNIFICANCE" (1978) and "6.6 Recommendations" (2024) map to the same recommendations section. The `--config` flag replaces per-run CLI arguments for corpus-wide runs:
 
 ```yaml
 # config_reports.yaml
-input_dir:       'G:\path\to\reports_ocr_docling\All'
-output_dir:      'runs'
-model:           'qwen2.5:32b'
-temperature:     0.05
-timeout_seconds: 1800
-num_ctx:         32768
+input_dir:            'G:\path\to\reports_ocr_docling\All'
+output_dir:           'runs'
+model:                'qwen2.5:32b'
+chunk_size_headings:  515   # reports exceeding this are split; 0 to disable
+temperature:          0.05
+timeout_seconds:      1800
+num_ctx:              32768
 ```
 
 ```powershell
@@ -169,8 +186,8 @@ uv run python segment_reports_pass0.py --config config_reports.yaml
 # Single report — fastest way to verify output before a corpus run
 uv run python segment_reports_pass0.py --config config_reports.yaml --report "22-0479_Hartfield et al. 1978"
 
-# Re-run everything
-uv run python segment_reports_pass0.py --config config_reports.yaml --force
+# Re-run into an existing run directory (e.g. to fill in failures)
+uv run python segment_reports_pass0.py --config config_reports.yaml --force --report "22-7597_Zieschang et al. 2024" --run-dir "runs\20260629_1833_b34ed56"
 ```
 
 Output goes to `runs/<YYYYMMDD_HHMM_gitsha>/<model>/`, one `<report_name>.segments.json` per report. The format is the same shared segments.json structure used by the site form pipeline, with section types encoded as `<section>_pages` keys rather than investigation-level page types:
@@ -197,17 +214,35 @@ Output goes to `runs/<YYYYMMDD_HHMM_gitsha>/<model>/`, one `<report_name>.segmen
 }
 ```
 
-The single segment's `label` is the report directory name. `pages` is the union of all section pages (unclassified pages like front matter and appendices are excluded — they appear in neither `pages` nor any `_pages` key). `_section_detail` preserves the labeled sub-segments identified by the model (e.g. which specific headings bounded each section) for human review; it is ignored by downstream consumers. Because downstream tools discover `*_pages` keys dynamically, they consume this format with no code changes — the same path that reads `form_pages` and `narrative_pages` from site form segments also reads `results_pages` and `recommendations_pages` from report segments.
+The single segment's `label` is the report directory name. `pages` is the union of all section pages (unclassified pages like front matter and appendices are excluded). `_section_detail` preserves the labeled sub-segments identified by the model for human review; it is ignored by downstream consumers. Because downstream tools discover `*_pages` keys dynamically, they consume this format with no code changes — the same path that reads `form_pages` and `narrative_pages` from site form segments also reads `results_pages` and `recommendations_pages` from report segments.
 
-**Trinomial extraction.** After pass 0 identifies the relevant pages, [site_vocab_extractor](https://github.com/jnpaige/site_vocab_extractor) scans those pages for site number mentions. The `results_pages` and `recommendations_pages` keys in the segments.json feed directly into the vocab extractor as a page filter, concentrating the search on pages most likely to contain substantive per-site discussion — for the 180-page Hartfield report this reduced the scan from 180 pages to 10.
+---
 
-**Pass 2: per-trinomial page narrowing.** Once section page maps and a trinomial list are in hand, pass 2 identifies which pages within the results and recommendations sections discuss each individual site. It uses `report_pass2_trinomial_pages.txt` and iterates per trinomial, keeping each LLM call short and predictably sized. A script for this pass is in development.
+### Full-text approach (pass 1)
+
+`report_pass1_sections.txt` is a prompt for full-text report segmentation. Rather than a heading list, it receives page content assembled from `text_docling.txt` and returns the same section-type page assignments. This is the appropriate approach when `headings.json` is absent or unreliable — for example, reports processed by an older OCR pipeline without heading detection, or documents where headings are too sparse or inconsistently formatted for pass 0 to produce confident results.
+
+The full-text approach benefits from seeing body text — transition sentences, artifact descriptions, site number mentions — that heading text alone cannot capture. The cost is scalability: for documents beyond roughly 30–50 pages, the per-page content must be progressively truncated to fit in context, and at very long documents that truncation can reduce visibility to a line or two per page. In practice this means pass 1 works well for medium-length reports (under ~100 pages) and for reports where the section boundaries are signaled by content patterns rather than heading labels. For long reports, pass 0 with chunking is more reliable because it keeps heading signal sharp regardless of document length.
+
+A script applying pass 1 with adaptive truncation (same mechanism as the site form segmenter) is in development. In the interim, pass 0 with `chunk_size_headings` handles large-corpus runs; pass 1 is available for targeted use on specific documents through direct prompt experimentation.
+
+---
+
+### Trinomial extraction and downstream passes
+
+After section segmentation, [site_vocab_extractor](https://github.com/jnpaige/site_vocab_extractor) scans the relevant pages for site number mentions. The `results_pages` and `recommendations_pages` keys in the segments.json feed directly into the vocab extractor as a page filter, concentrating the search on pages most likely to contain substantive per-site discussion — for the 180-page Hartfield report this reduced the scan from 180 pages to 10. The vocab extractor supports page-count-based chunking so that reports with dense results sections can be processed in smaller batches without losing coverage.
+
+Once section page maps and a trinomial list are in hand, pass 2 identifies which pages within the results and recommendations sections discuss each individual site. It uses `report_pass2_trinomial_pages.txt` and iterates per trinomial, keeping each LLM call short and predictably sized. A script for this pass is in development.
 
 ---
 
 ## Segment type prompts
 
-All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts are prefixed `report_`: `report_pass0_sections.txt` drives the heading-only section classifier, `report_pass1_sections.txt` is a full-text fallback for documents with sparse headings, and `report_pass2_trinomial_pages.txt` drives the per-trinomial page narrowing pass.
+All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts are prefixed `report_`:
+
+- `report_pass0_sections.txt` — heading-only section classifier; primary approach for most reports
+- `report_pass1_sections.txt` — full-text section classifier; fallback for sparse-heading documents
+- `report_pass2_trinomial_pages.txt` — per-trinomial page narrowing within identified sections
 
 ---
 

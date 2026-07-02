@@ -80,15 +80,32 @@ def _extract_page_snippets(txt_path: Path, max_chars: int = 120) -> dict[int, st
     return snippets
 
 
-def _format_headings(headings: list[dict], snippets: dict[int, str] | None = None) -> str:
-    """Format heading list as compact text for the prompt placeholder."""
+def _format_headings(
+    headings: list[dict],
+    snippets: dict[int, str] | None = None,
+    max_per_page: int | None = None,
+) -> str:
+    """Format heading list as compact text for the prompt placeholder.
+
+    Each page's snippet is shown only on the first heading for that page.
+    If max_per_page is set, only the first N headings per page are included —
+    useful for very large reports where sub-headings within a section would
+    otherwise overflow the context window.
+    """
     lines = []
+    snippet_shown: set[int] = set()
+    page_count: dict[int, int] = {}
     for h in headings:
-        line = f"p{h['page']:>4}  {h['text']}"
-        if snippets:
-            snip = snippets.get(h["page"], "")
+        page = h["page"]
+        page_count[page] = page_count.get(page, 0) + 1
+        if max_per_page is not None and page_count[page] > max_per_page:
+            continue
+        line = f"p{page:>4}  {h['text']}"
+        if snippets and page not in snippet_shown:
+            snip = snippets.get(page, "")
             if snip:
                 line += f'  |  "{snip}"'
+            snippet_shown.add(page)
         lines.append(line)
     return "\n".join(lines)
 
@@ -106,6 +123,43 @@ def _all_pages(result: dict) -> set[int]:
     return pages
 
 
+def _call_chunk(
+    headings: list[dict],
+    snippets: dict[int, str] | None,
+    prompt_template: str,
+    model: str,
+    base_url: str,
+    temperature: float,
+    timeout: float,
+    num_ctx: int,
+    label: str,
+) -> dict | None:
+    """Make one LLM call for a slice of the heading list."""
+    heading_text = _format_headings(headings, snippets)
+    prompt       = prompt_template.replace("{HEADINGS}", heading_text)
+    return extract_json(
+        system_prompt=prompt,
+        user_content="Analyze the heading list above and return the section map.",
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        timeout=timeout,
+        label=label,
+        num_ctx=num_ctx,
+    )
+
+
+def _merge_chunk_results(chunk_results: list[dict]) -> dict:
+    """Merge multiple per-chunk section maps into one combined result."""
+    merged: dict[str, list] = {}
+    for r in chunk_results:
+        for section_type, entries in r.items():
+            if isinstance(entries, list):
+                merged.setdefault(section_type, [])
+                merged[section_type].extend(entries)
+    return merged
+
+
 def segment_report(
     report_dir: Path,
     prompt_template: str,
@@ -114,6 +168,7 @@ def segment_report(
     temperature: float,
     timeout: float,
     num_ctx: int,
+    chunk_size: int = 0,
 ) -> dict | None:
     headings_path = report_dir / "headings.json"
     if not headings_path.exists():
@@ -128,33 +183,35 @@ def segment_report(
 
     txt_path = report_dir / "text_docling.txt"
     snippets = _extract_page_snippets(txt_path) if txt_path.exists() else None
+    n_pages  = max(h["page"] for h in headings) + 1
 
-    heading_text = _format_headings(headings, snippets)
-    n_pages = max(h["page"] for h in headings) + 1
-
-    prompt = prompt_template.replace("{HEADINGS}", heading_text)
-
-    result = extract_json(
-        system_prompt=prompt,
-        user_content="Analyze the heading list above and return the section map.",
-        model=model,
-        base_url=base_url,
-        temperature=temperature,
-        timeout=timeout,
-        label=f"pass0:{report_dir.name}",
-        num_ctx=num_ctx,
-    )
+    # Chunk the heading list if it exceeds chunk_size.
+    if chunk_size > 0 and len(headings) > chunk_size:
+        chunks = [headings[i:i + chunk_size] for i in range(0, len(headings), chunk_size)]
+        print(f"\n    chunking: {len(headings)} headings -> {len(chunks)} chunks of ~{chunk_size}", flush=True)
+        chunk_results = []
+        for idx, chunk in enumerate(chunks):
+            label = f"pass0:{report_dir.name}[{idx+1}/{len(chunks)}]"
+            r = _call_chunk(chunk, snippets, prompt_template, model, base_url,
+                            temperature, timeout, num_ctx, label)
+            if r is None:
+                print(f"\n    [error] chunk {idx+1} returned no JSON — skipping", flush=True)
+            else:
+                chunk_results.append(r)
+        if not chunk_results:
+            print(f"  [error] {report_dir.name} — all chunks failed")
+            return None
+        result = _merge_chunk_results(chunk_results)
+    else:
+        result = _call_chunk(headings, snippets, prompt_template, model, base_url,
+                             temperature, timeout, num_ctx, f"pass0:{report_dir.name}")
 
     if result is None:
         print(f"  [error] {report_dir.name} — LLM returned no parseable JSON")
         return None
 
     # Flatten LLM output {section_type: [{label, pages}]} into the shared
-    # segments.json format used across this pipeline.  Each section type
-    # becomes a <section>_pages key so downstream tools discover it the same
-    # way they discover form_pages / narrative_pages / nrhp_pages on site forms.
-    # The original labeled sub-segments are preserved in _section_detail for
-    # human review.
+    # segments.json format used across this pipeline.
     section_pages: dict[str, list[int]] = {}
     section_detail: dict = {}
     for section_type, entries in result.items():
@@ -171,9 +228,9 @@ def segment_report(
     all_pages = sorted({p for plist in section_pages.values() for p in plist})
 
     return {
-        "report": report_dir.name,
+        "report":     report_dir.name,
         "n_headings": len(headings),
-        "n_pages": n_pages,
+        "n_pages":    n_pages,
         "segments": [
             {
                 "label": report_dir.name,
@@ -200,6 +257,8 @@ def main() -> None:
     ap.add_argument("--num-ctx", type=int, default=None)
     ap.add_argument("--force", action="store_true",
                     help="Re-run even if output already exists")
+    ap.add_argument("--run-dir", default=None, metavar="PATH",
+                    help="Write output into this existing run directory instead of creating a new one")
     args = ap.parse_args()
 
     # Load config file if provided; CLI flags override
@@ -210,12 +269,13 @@ def main() -> None:
             sys.exit(f"Config not found: {cfg_path}")
         cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
 
-    input_dir_str  = args.input_dir  or cfg.get("input_dir")
-    model          = args.model      or cfg.get("model",          DEFAULT_MODEL)
-    base_url       = args.base_url   or cfg.get("base_url",       DEFAULT_BASE_URL)
-    temperature    = args.temperature if args.temperature is not None else float(cfg.get("temperature",    0.05))
-    timeout        = args.timeout    if args.timeout    is not None else float(cfg.get("timeout_seconds", 1800))
-    num_ctx        = args.num_ctx    if args.num_ctx    is not None else int(cfg.get("num_ctx",           32768))
+    input_dir_str = args.input_dir or cfg.get("input_dir")
+    model         = args.model     or cfg.get("model",          DEFAULT_MODEL)
+    base_url      = args.base_url  or cfg.get("base_url",       DEFAULT_BASE_URL)
+    temperature   = args.temperature if args.temperature is not None else float(cfg.get("temperature",    0.05))
+    timeout       = args.timeout    if args.timeout    is not None else float(cfg.get("timeout_seconds", 1800))
+    num_ctx       = args.num_ctx    if args.num_ctx    is not None else int(cfg.get("num_ctx",           32768))
+    chunk_size    = int(cfg.get("chunk_size_headings", 0))
 
     if not input_dir_str:
         sys.exit("--input-dir is required (or set input_dir in config)")
@@ -242,14 +302,21 @@ def main() -> None:
     if not report_dirs:
         sys.exit(f"No headings.json files found under: {root}")
 
-    run_dir = _make_run_dir(Path(cfg.get("output_dir", "runs")))
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+        if not run_dir.exists():
+            sys.exit(f"--run-dir not found: {run_dir}")
+    else:
+        run_dir = _make_run_dir(Path(cfg.get("output_dir", "runs")))
     model_slug = model.replace(":", "_").replace(".", "_")
-    model_dir = run_dir / model_slug
+    model_dir  = run_dir / model_slug
     model_dir.mkdir(exist_ok=True)
 
-    print(f"\nRun dir   : {run_dir}")
-    print(f"Model     : {model}")
-    print(f"Reports   : {len(report_dirs)}\n")
+    print(f"\nRun dir    : {run_dir}")
+    print(f"Model      : {model}")
+    if chunk_size:
+        print(f"Chunk size : {chunk_size} headings (reports exceeding this are split)")
+    print(f"Reports    : {len(report_dirs)}\n")
 
     reset_stats()
     run_started = datetime.now(timezone.utc)
@@ -269,6 +336,7 @@ def main() -> None:
         result = segment_report(
             report_dir, prompt_template,
             model, base_url, temperature, timeout, num_ctx,
+            chunk_size=chunk_size,
         )
 
         elapsed = time.monotonic() - t0

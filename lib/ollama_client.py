@@ -85,12 +85,31 @@ def _post(payload: dict, base_url: str, timeout: float, label: str) -> str | Non
         return None
 
     elapsed = time.monotonic() - t0
-    data    = resp.json()
-    text    = data.get("message", {}).get("content", "")
+    raw     = resp.content
+    lines   = [l for l in raw.splitlines() if l.strip()]
+
+    text: str = ""
+    prompt_tokens = eval_tokens = eval_dur = 0
+    n_chunks = 0
+    for line in lines:
+        try:
+            chunk = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        text += chunk.get("message", {}).get("content", "")
+        n_chunks += 1
+        if chunk.get("done"):
+            prompt_tokens = chunk.get("prompt_eval_count", 0)
+            eval_tokens   = chunk.get("eval_count", 0)
+            eval_dur      = chunk.get("eval_duration", 0)
+            done_reason   = chunk.get("done_reason", "unknown")
+            if label:
+                print(f"\n    [debug] {label}: chunks={n_chunks}  prompt_tok={prompt_tokens}  gen_tok={eval_tokens}  done_reason={done_reason}  text_len={len(text)}", flush=True)
+            break
 
     with _lock:
-        _stats["prompt_tokens"]     += data.get("prompt_eval_count", 0)
-        _stats["completion_tokens"] += data.get("eval_count", 0)
+        _stats["prompt_tokens"]     += prompt_tokens
+        _stats["completion_tokens"] += eval_tokens
         _stats["elapsed_s"]         += elapsed
 
     return text
@@ -141,7 +160,8 @@ def _parse_json(text: str, label: str = "") -> dict | list | None:
                 return json.loads(m.group())
             except json.JSONDecodeError:
                 pass
-    print(f"  [warn] JSON parse failed for {label}")
+    preview = text[:600].replace("\n", " ") if text else "<empty>"
+    print(f"  [warn] JSON parse failed for {label}  |  response preview: {preview!r}")
     return None
 
 

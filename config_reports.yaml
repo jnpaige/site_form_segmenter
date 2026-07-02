@@ -12,6 +12,13 @@ input_dir:   'G:\Shared drives\CRS_data\Kisatchie_data\Archaeology_site_forms\Ph
 output_dir:  'runs'
 
 model:           'qwen2.5:32b'
+
+# Reports with more headings than this are split into chunks and each chunk
+# is sent as a separate LLM call; results are merged afterwards.
+# Set to 0 to disable chunking. 515 = max heading count in successful single-call
+# runs on the Kisatchie corpus (Morehead et al. 2003).
+chunk_size_headings: 515
+
 base_url:        'http://localhost:11434'
 temperature:     0.05
 timeout_seconds: 1800
