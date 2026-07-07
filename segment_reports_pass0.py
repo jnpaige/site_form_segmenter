@@ -10,15 +10,24 @@ sections (executive_summary, methods, results, recommendations, other).
 This is cheaper and faster than full-text segmentation: the LLM sees only the
 heading list, not the full document text.
 
+Every run creates its own, never-reused flat directory — runs/<YYYYMMDD_HHMM>_<gitsha>/ —
+with output files prefixed by the model that produced them
+(<model_slug>__<report>.segments.json), a config snapshot, a prompts.yaml
+text snapshot, and an inventory.csv. There is no cross-run resumability by
+design: if a run is interrupted, re-run with --report for the remaining
+reports — that run's outputs land in a new folder, and each folder's
+run_metadata.json lets you cross-reference which reports came from which run.
+
 Usage:
     uv run python segment_reports_pass0.py --input-dir "G:/path/to/reports"
     uv run python segment_reports_pass0.py --input-dir "G:/path" --report "22-7597_Zieschang et al. 2024"
-    uv run python segment_reports_pass0.py --input-dir "G:/path" --force
+    uv run python segment_reports_pass0.py --config config_reports.yaml --model qwen2.5:72b --report "22-7597_Zieschang et al. 2024"
 """
 
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -30,6 +39,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent / "lib"))
 from ollama_client import extract_json, get_stats, reset_stats
 from page_parser import parse_pages
+from inventory import write_inventory_csv
 
 PROMPT_FILE = Path(__file__).parent / "segment_types" / "report_pass0_sections.txt"
 DEFAULT_MODEL = "qwen2.5:32b"
@@ -47,10 +57,26 @@ def _git_sha() -> str:
 
 
 def _make_run_dir(base: Path) -> Path:
+    """Create a fresh, never-reused run directory <base>/<YYYYMMDD_HHMM>_<gitsha>.
+
+    If another run already claimed that exact minute+sha, suffix with
+    -b, -c, ... rather than reusing the folder.
+    """
     stamp = f"{datetime.now().strftime('%Y%m%d_%H%M')}_{_git_sha()}"
-    d = base / stamp
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    base.mkdir(parents=True, exist_ok=True)
+    candidate = base / stamp
+    n = 0
+    while True:
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            n += 1
+            candidate = base / f"{stamp}-{chr(ord('a') + n - 1)}"
+
+
+def _slug(model: str) -> str:
+    return model.replace(":", "_").replace(".", "_")
 
 
 def _extract_page_snippets(txt_path: Path, max_chars: int = 120) -> dict[int, str]:
@@ -186,8 +212,11 @@ def segment_report(
     n_pages  = max(h["page"] for h in headings) + 1
 
     # Chunk the heading list if it exceeds chunk_size.
-    if chunk_size > 0 and len(headings) > chunk_size:
+    chunked  = chunk_size > 0 and len(headings) > chunk_size
+    n_chunks = 1
+    if chunked:
         chunks = [headings[i:i + chunk_size] for i in range(0, len(headings), chunk_size)]
+        n_chunks = len(chunks)
         print(f"\n    chunking: {len(headings)} headings -> {len(chunks)} chunks of ~{chunk_size}", flush=True)
         chunk_results = []
         for idx, chunk in enumerate(chunks):
@@ -228,9 +257,13 @@ def segment_report(
     all_pages = sorted({p for plist in section_pages.values() for p in plist})
 
     return {
-        "report":     report_dir.name,
-        "n_headings": len(headings),
-        "n_pages":    n_pages,
+        "report":       report_dir.name,
+        "model":        model,
+        "segmented_at": datetime.now().isoformat(timespec="seconds"),
+        "chunked":      chunked,
+        "n_chunks":     n_chunks,
+        "n_headings":   len(headings),
+        "n_pages":      n_pages,
         "segments": [
             {
                 "label": report_dir.name,
@@ -255,10 +288,6 @@ def main() -> None:
     ap.add_argument("--temperature", type=float, default=None)
     ap.add_argument("--timeout", type=float, default=None)
     ap.add_argument("--num-ctx", type=int, default=None)
-    ap.add_argument("--force", action="store_true",
-                    help="Re-run even if output already exists")
-    ap.add_argument("--run-dir", default=None, metavar="PATH",
-                    help="Write output into this existing run directory instead of creating a new one")
     args = ap.parse_args()
 
     # Load config file if provided; CLI flags override
@@ -302,15 +331,29 @@ def main() -> None:
     if not report_dirs:
         sys.exit(f"No headings.json files found under: {root}")
 
-    if args.run_dir:
-        run_dir = Path(args.run_dir)
-        if not run_dir.exists():
-            sys.exit(f"--run-dir not found: {run_dir}")
+    run_dir = _make_run_dir(Path(cfg.get("output_dir", "runs")))
+    model_slug = _slug(model)
+
+    # Config snapshot: copy the original file if one was given, else write a
+    # synthesized snapshot of the resolved settings so every run still has one.
+    if args.config and Path(args.config).exists():
+        cfg_path = Path(args.config)
+        shutil.copy(cfg_path, run_dir / cfg_path.name)
     else:
-        run_dir = _make_run_dir(Path(cfg.get("output_dir", "runs")))
-    model_slug = model.replace(":", "_").replace(".", "_")
-    model_dir  = run_dir / model_slug
-    model_dir.mkdir(exist_ok=True)
+        (run_dir / "config_snapshot.yaml").write_text(
+            yaml.dump({
+                "input_dir": str(root), "model": model, "base_url": base_url,
+                "temperature": temperature, "timeout_seconds": timeout,
+                "num_ctx": num_ctx, "chunk_size_headings": chunk_size,
+            }, sort_keys=False),
+            encoding="utf-8",
+        )
+
+    (run_dir / "prompts.yaml").write_text(
+        yaml.dump({"segmentation_prompts": {"pass0_sections": prompt_template}},
+                  allow_unicode=True, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
 
     print(f"\nRun dir    : {run_dir}")
     print(f"Model      : {model}")
@@ -322,13 +365,11 @@ def main() -> None:
     run_started = datetime.now(timezone.utc)
     run_t0 = time.monotonic()
     report_timings: list[dict] = []
+    inventory_rows: list[dict] = []
     n_processed = 0
 
     for report_dir in report_dirs:
-        out_path = model_dir / f"{report_dir.name}.segments.json"
-        if out_path.exists() and not args.force:
-            print(f"  [skip] {report_dir.name}")
-            continue
+        out_path = run_dir / f"{model_slug}__{report_dir.name}.segments.json"
 
         print(f"  [segment] {report_dir.name} ...", end=" ", flush=True)
         t0 = time.monotonic()
@@ -352,10 +393,29 @@ def main() -> None:
                   for k, v in seg.items()
                   if k.endswith("_pages") and k != "other_pages" and isinstance(v, list)}
         summary = "  ".join(f"{k}:{n}pp" for k, n in counts.items() if n > 0)
-        print(f"{elapsed:.0f}s  |  {summary}")
+        chunk_note = f"  [{result['n_chunks']} chunks]" if result["chunked"] else ""
+        print(f"{elapsed:.0f}s  |  {summary}{chunk_note}")
 
         report_timings.append({"report": report_dir.name, "seconds": round(elapsed, 1)})
         n_processed += 1
+
+        chunk_desc = (f"chunk_size_headings={chunk_size} chunked=True n_chunks={result['n_chunks']}"
+                      if result["chunked"] else f"chunk_size_headings={chunk_size} chunked=False")
+        inventory_rows.append({
+            "run_id":              run_dir.name,
+            "tool":                "site_form_segmenter:reports",
+            "model":               model,
+            "file_name":           out_path.name,
+            "file_path":           str(out_path),
+            "source_input":        report_dir.name,
+            "prompt_file":         str(PROMPT_FILE),
+            "prompt_snapshot_key": "pass0_sections",
+            "temperature":         temperature,
+            "num_ctx":             num_ctx,
+            "chunk_strategy":      chunk_desc,
+            "produced_at":         result["segmented_at"],
+            "output_file_path":    str(out_path),
+        })
 
     run_elapsed = time.monotonic() - run_t0
     stats = get_stats()
@@ -371,6 +431,10 @@ def main() -> None:
             "input_dir": str(root),
             "n_reports_processed": n_processed,
             "avg_seconds_per_report": round(run_elapsed / n_processed, 1) if n_processed else None,
+            "chunking": {
+                "strategy": "chunk_size_headings",
+                "chunk_size_headings": chunk_size,
+            },
             "report_timings": report_timings,
             "token_stats": {
                 "prompt_tokens": stats["prompt_tokens"],
@@ -382,6 +446,8 @@ def main() -> None:
         }, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+
+    write_inventory_csv(run_dir, inventory_rows)
 
     print(f"\nDone.  {n_processed} reports  |  {run_elapsed:.0f}s total")
     print(f"Run directory -> {run_dir}")

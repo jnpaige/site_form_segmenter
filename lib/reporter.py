@@ -4,16 +4,19 @@ from pathlib import Path
 
 
 _SEGMENT_FIELDS = [
-    "trinomial", "source_file", "label", "year",
+    "trinomial", "source_file", "model", "label", "year",
     "pages", "page_count",
     "form_pages", "narrative_pages", "nrhp_pages",
 ]
 
 
-def append_segments_csv(out_dir, trinomial: str, segments: list[dict]) -> None:
+def append_segments_csv(out_dir, trinomial: str, segments: list[dict], model: str = "") -> None:
     """Append segment rows for one trinomial to <out_dir>/segments.csv.
 
-    Creates the file with a header row if it does not yet exist.
+    Creates the file with a header row if it does not yet exist. `model` is
+    the model (or model pair) that actually produced these segments — a flat
+    run folder can hold rows from more than one model, so it's recorded per
+    row rather than once in a header.
     """
     csv_path = Path(out_dir) / "segments.csv"
     write_header = not csv_path.exists()
@@ -27,6 +30,7 @@ def append_segments_csv(out_dir, trinomial: str, segments: list[dict]) -> None:
             writer.writerow({
                 "trinomial":       trinomial,
                 "source_file":     seg.get("_source_file", ""),
+                "model":           model,
                 "label":           seg.get("label", ""),
                 "year":            seg.get("year", ""),
                 "pages":           ";".join(str(p) for p in pages),
@@ -46,7 +50,9 @@ def append_segmentation_map(
 ) -> None:
     """Append a trinomial's segmentation results to <out_dir>/segmentation_map.md.
 
-    Creates the file with a header on first write.
+    Creates the file with a header on first write. `seg_model` is also
+    repeated per-trinomial in the body, since a flat run folder can mix
+    models across trinomials (e.g. a vision-mode fallback to text).
     """
     map_path = Path(out_dir) / "segmentation_map.md"
     write_header = not map_path.exists()
@@ -54,13 +60,13 @@ def append_segmentation_map(
     lines = []
     if write_header:
         lines += ["# Segmentation Map", ""]
-        if seg_model:
-            lines.append(f"**Segmentation model:** {seg_model}")
         if seg_type:
             lines.append(f"**Segment type:** {seg_type}")
         lines += ["", "---", ""]
 
     lines += [f"## {trinomial}", ""]
+    if seg_model:
+        lines.append(f"**Model:** {seg_model}")
 
     for seg in segments:
         label  = seg.get("label", "Unknown")

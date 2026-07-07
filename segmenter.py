@@ -8,26 +8,40 @@ Two modes:
   vision — vision_model for pass 1 (investigation boundaries via rendered PDF images),
             then text_model for passes 2–4 (form page, narrative, NRHP)
 
-Each run creates a versioned directory:
-  runs/<YYYYMMDD_HH_gitsha>/<mode_slug>/
+Each run creates its own, never-reused directory:
+  runs/<YYYYMMDD_HHMM>_<gitsha>/
+
+Every run directory is flat — no per-model subfolders. Output filenames are
+prefixed with the model (or model pair) that actually produced them, since a
+single run can mix models (e.g. a vision-mode trinomial that fell back to
+text because no PDF was found):
+  <mode_slug>__<trinomial>.segments.json
 
 Per run directory:
-  config.yaml          config snapshot
+  config.yaml          config snapshot (original filename preserved)
   prompts.yaml         every prompt used
   segmentation_map.md  human-readable page map (appended per site)
   segments.csv         machine-readable segment table (appended per site)
-  <trinomial>.segments.json  full structured output per site
+  run_metadata.json    run-level stats, including the chunking/context strategy
+  inventory.csv        one row per output file: model, prompt, chunking, path
+  <mode_slug>__<trinomial>.segments.json  full structured output per site
+
+There is no cross-run resumability by design: every invocation gets its own
+folder, and nothing is ever appended to or overwritten. If a run is
+interrupted, re-run with --trinomial for the remaining sites — that run's
+outputs land in a new folder, and run_metadata.json in each folder lets you
+cross-reference which sites came from which run.
 
 Usage:
     python segmenter.py                          # all sites, mode from config
     python segmenter.py --trinomial 16WN385      # single site
     python segmenter.py --mode text              # override mode
     python segmenter.py --mode vision            # override mode
-    python segmenter.py --force                  # re-run existing outputs
     python segmenter.py --config config.yaml     # explicit config path
 """
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -43,6 +57,7 @@ from page_parser   import parse_pages, build_page_preview
 from pdf_renderer  import render_pages_to_contact_sheet
 from ollama_client import extract_json, extract_json_vision, get_stats
 from reporter      import append_segments_csv, append_segmentation_map
+from inventory     import write_inventory_csv
 
 
 def _check_pymupdf() -> bool:
@@ -77,19 +92,37 @@ _PYMUPDF_HINT = """\
 """
 
 
-def _run_id() -> str:
+def _git_sha() -> str:
     try:
-        sha = subprocess.check_output(
+        return subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             stderr=subprocess.DEVNULL,
         ).decode().strip()
     except Exception:
-        sha = "nogit"
-    return f"{datetime.now().strftime('%Y%m%d_%H%M')}_{sha}"
+        return "nogit"
+
+
+def _make_run_dir(base: Path) -> Path:
+    """Create a fresh, never-reused run directory <base>/<YYYYMMDD_HHMM>_<gitsha>.
+
+    If another run already claimed that exact minute+sha (e.g. two quick
+    invocations), suffix with -b, -c, ... rather than reusing the folder.
+    """
+    stamp = f"{datetime.now().strftime('%Y%m%d_%H%M')}_{_git_sha()}"
+    base.mkdir(parents=True, exist_ok=True)
+    candidate = base / stamp
+    n = 0
+    while True:
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            n += 1
+            candidate = base / f"{stamp}-{chr(ord('a') + n - 1)}"
 
 
 def _slug(s: str) -> str:
-    return s.replace(":", "_").replace("/", "_")
+    return s.replace(":", "_").replace("/", "_").replace(".", "_")
 
 
 def main():
@@ -97,7 +130,6 @@ def main():
     parser.add_argument("--config",    default="config.yaml")
     parser.add_argument("--mode",      choices=["text", "vision"], default=None)
     parser.add_argument("--trinomial", default=None)
-    parser.add_argument("--force",     action="store_true")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -121,18 +153,10 @@ def main():
 
     seg_types_dir = Path("segment_types")
 
-    if mode == "vision":
-        mode_slug = f"vision__{_slug(vision_model)}__{_slug(text_model)}"
-    else:
-        mode_slug = f"text__{_slug(text_model)}"
-
     runs_root = Path(cfg.get("output_dir", "runs"))
-    run_dir = runs_root / _run_id()
-    out_dir = run_dir / mode_slug
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "config.yaml").write_text(
-        Path(args.config).read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    run_dir = _make_run_dir(runs_root)
+    config_path = Path(args.config)
+    shutil.copy(config_path, run_dir / config_path.name)
 
     groups = group_by_trinomial(input_dir, pattern)
     if args.trinomial:
@@ -143,7 +167,7 @@ def main():
         groups = {t: groups[t]}
 
     trinomials = sorted(groups.keys())
-    print(f"Run dir : {out_dir}")
+    print(f"Run dir : {run_dir}")
     print(f"Sites   : {len(trinomials)}  {trinomials}")
     print(f"Mode    : {mode}")
     if mode == "vision":
@@ -151,7 +175,7 @@ def main():
     else:
         print(f"Model   : {text_model}")
 
-    _save_prompt_snapshot(out_dir, mode, seg_types_dir)
+    _save_prompt_snapshot(run_dir, mode, seg_types_dir)
 
     ollama_cfg = {
         "text_model":    text_model,
@@ -166,19 +190,13 @@ def main():
     run_started = datetime.now(timezone.utc)
     run_t0 = time.monotonic()
     site_timings: list[dict] = []
+    inventory_rows: list[dict] = []
     n_processed = 0
-    n_skipped = 0
 
     for trinomial in trinomials:
         entry    = groups[trinomial]
         txt_path = entry["txt"]
         pdf_path = entry.get("pdf")
-        seg_file = out_dir / f"{trinomial}.segments.json"
-
-        if seg_file.exists() and not args.force:
-            print(f"  [skip] {trinomial} — exists")
-            n_skipped += 1
-            continue
 
         pages = parse_pages(txt_path)
         if not pages:
@@ -189,10 +207,12 @@ def main():
 
         contact_sheet: str = ""
         effective_mode = mode
+        fallback_from_vision = False
         if mode == "vision":
             if pdf_path is None:
                 print(f"  [warn] {trinomial}: no PDF found — falling back to text mode for pass 1")
                 effective_mode = "text"
+                fallback_from_vision = True
             else:
                 print(f"  [render] {trinomial}: building contact sheet ({len(pages)} pages)")
                 try:
@@ -201,6 +221,17 @@ def main():
                     print(f"  [error] {e}")
                     print(f"  [warn] falling back to text mode for pass 1")
                     effective_mode = "text"
+                    fallback_from_vision = True
+
+        # Model prefix reflects the model(s) actually used for THIS trinomial,
+        # not just the configured mode — a vision run that fell back to text
+        # for a specific site must say so in that site's own filename.
+        if effective_mode == "vision":
+            prefix = f"vision__{_slug(vision_model)}__{_slug(text_model)}"
+        else:
+            prefix = f"text__{_slug(text_model)}"
+            if fallback_from_vision:
+                prefix += "__fallback-from-vision"
 
         segments = _segment_site_form(
             trinomial, pages, contact_sheet,
@@ -213,22 +244,27 @@ def main():
         for seg in segments:
             seg["_source_file"] = txt_path.name
 
+        seg_file = run_dir / f"{prefix}__{trinomial}.segments.json"
+        segmented_at = datetime.now().isoformat(timespec="seconds")
         seg_file.write_text(
             json.dumps({
-                "trinomial":    trinomial,
-                "segmented_at": datetime.now().isoformat(timespec="seconds"),
-                "mode":         mode,
-                "text_model":   text_model,
-                "vision_model": vision_model if mode == "vision" else None,
-                "segments":     segments,
+                "trinomial":            trinomial,
+                "segmented_at":         segmented_at,
+                "mode":                 mode,
+                "effective_mode":       effective_mode,
+                "fallback_from_vision": fallback_from_vision,
+                "text_model":           text_model,
+                "vision_model":         vision_model if effective_mode == "vision" else None,
+                "segments":             segments,
             }, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
 
-        append_segments_csv(out_dir, trinomial, segments)
+        model_used = vision_model if effective_mode == "vision" else text_model
+        append_segments_csv(run_dir, trinomial, segments, model=prefix)
         append_segmentation_map(
-            out_dir, trinomial, segments,
-            seg_model=(vision_model if effective_mode == "vision" else text_model),
+            run_dir, trinomial, segments,
+            seg_model=model_used,
             seg_type="site_form",
         )
 
@@ -240,6 +276,26 @@ def main():
             "investigations": n_inv,
         })
         n_processed += 1
+
+        prompt_snapshot_key = "pass1_vision" if effective_mode == "vision" else "pass1_boundaries"
+        inventory_rows.append({
+            "run_id":              run_dir.name,
+            "tool":                "site_form_segmenter:forms",
+            "model":               prefix,
+            "file_name":           seg_file.name,
+            "file_path":           str(seg_file),
+            "source_input":        txt_path.name,
+            "prompt_file":         str(seg_types_dir / (
+                                       "site_form_pass1_vision.txt" if effective_mode == "vision"
+                                       else "site_form_pass1_boundaries.txt"
+                                   )),
+            "prompt_snapshot_key": prompt_snapshot_key,
+            "temperature":         temperature,
+            "num_ctx":             f"adaptive({num_ctx_min}-{num_ctx_max})",
+            "chunk_strategy":      f"adaptive_num_ctx min={num_ctx_min} max={num_ctx_max} page_trunc_base={page_trunc}",
+            "produced_at":         segmented_at,
+            "output_file_path":    str(seg_file),
+        })
         print(f"  [done] {trinomial} — {n_inv} investigation(s) ({site_elapsed:.1f}s)")
 
     run_elapsed = time.monotonic() - run_t0
@@ -260,8 +316,13 @@ def main():
             "text_model":           text_model,
             "vision_model":         vision_model if mode == "vision" else None,
             "n_sites_processed":    n_processed,
-            "n_sites_skipped":      n_skipped,
             "avg_seconds_per_site": avg_per_site,
+            "chunking": {
+                "strategy":              "adaptive_num_ctx",
+                "num_ctx_min":           num_ctx_min,
+                "num_ctx_max":           num_ctx_max,
+                "page_truncation_chars": page_trunc,
+            },
             "token_stats": {
                 "prompt_tokens":     stats["prompt_tokens"],
                 "completion_tokens": stats["completion_tokens"],
@@ -273,7 +334,9 @@ def main():
         encoding="utf-8",
     )
 
-    print(f"\nDone.  Run directory -> {out_dir}")
+    write_inventory_csv(run_dir, inventory_rows)
+
+    print(f"\nDone.  Run directory -> {run_dir}")
 
 
 # ---------------------------------------------------------------------------

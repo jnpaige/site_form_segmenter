@@ -81,20 +81,32 @@ uv run python segmenter.py --mode text
 # Vision mode
 uv run python segmenter.py --mode vision
 
-# Re-run everything, ignoring existing output files
-uv run python segmenter.py --force
-
 # Use a different config file
 uv run python segmenter.py --config config_test.yaml
 ```
 
-A good first-run workflow is to process one site in text mode first to confirm the pipeline works end-to-end, then check the `segmentation_map.md` to verify the investigation boundaries look right, then try the same site in vision mode with `--force` to compare whether vision improves Pass 1 boundary detection.
+A good first-run workflow is to process one site in text mode first to confirm the pipeline works end-to-end, then check the `segmentation_map.md` to verify the investigation boundaries look right, then try the same site in vision mode to compare whether vision improves Pass 1 boundary detection.
+
+Every invocation creates its own new run folder — there is no flag to re-run into or resume an existing one. If a run is interrupted partway, re-run with `--trinomial` for the remaining sites; that run's outputs land in a separate folder, and each folder's `run_metadata.json` records which sites it covers so you can cross-reference across folders.
 
 ---
 
 ## Output
 
-Each run creates a versioned directory. Inside it, one subdirectory is created per model condition. The primary output for human review is `segmentation_map.md`, which shows one section per site listing each investigation, its page range, and its classified page types. The machine-readable equivalent is `segments.csv` with one row per investigation. Each site also gets a `<trinomial>.segments.json` file with the full structured output including run metadata, which is what downstream coding pipelines consume.
+Each run creates its own directory, `runs/<YYYYMMDD_HHMM>_<gitsha>/`, and nothing is ever appended to or overwritten in an existing one. The folder is flat — no per-model subdirectories — and every output filename is prefixed with the model (or model pair) that actually produced it, e.g. `text__qwen2_5_14b__16WN385.segments.json`. This matters because a single run can still mix models: a vision-mode run falls back to text for any site missing a source PDF, and that site's filename gets an explicit `__fallback-from-vision` suffix so it's never mistaken for a real vision-mode result.
+
+The primary output for human review is `segmentation_map.md`, which shows one section per site listing each investigation, its page range, its classified page types, and the model that produced it. The machine-readable equivalent is `segments.csv` with one row per investigation, also carrying a `model` column. Each site gets a `<model_slug>__<trinomial>.segments.json` file with the full structured output, including `segmented_at`, `text_model`, `vision_model`, `effective_mode`, and `fallback_from_vision`. The run folder also contains a `config.yaml` snapshot, a `prompts.yaml` text snapshot of every prompt used, `run_metadata.json` (run-level stats plus the adaptive-context/chunking parameters in effect), and `inventory.csv` — one row per output file summarizing model, prompt, chunking, and file path, generated automatically at the end of every run.
+
+---
+
+## Run metadata standard
+
+Both scripts in this repo — `segmenter.py` (site forms, above) and `segment_reports_pass0.py` (reports, see [Report segmentation](#report-segmentation) below) — follow the same run-metadata convention as the other pdf_ocr downstream tools ([site_coder](), site_vocab_extractor). See [pdf_ocr's README](https://github.com/jnpaige/pdf_ocr#run-metadata-standard) for the full rationale. In short:
+
+- Every invocation gets its own new run folder — `runs/<YYYYMMDD_HHMM>_<gitsha>/` — never reused or appended to.
+- The folder is flat; every filename is prefixed with the model(s) that produced it (site-form naming including the `__fallback-from-vision` case is in [Output](#output) above; report naming is in [Report segmentation](#report-segmentation) below).
+- Every run folder carries a config snapshot, a `prompts.yaml` text snapshot, `run_metadata.json` (with a `chunking` block), and `inventory.csv`, using the shared column schema: `run_id, tool, model, file_name, file_path, source_input, prompt_file, prompt_snapshot_key, temperature, num_ctx, chunk_strategy, produced_at, output_file_path`. Fields a given row can't determine are written as `not recorded`.
+- `generate_inventory.py` backfills `inventory.csv` for runs made before this convention existed (including the old nested `<run>/<model>/<file>` layout — see `--help` for usage), for either script's output.
 
 ---
 
@@ -130,7 +142,7 @@ If you see a `500 Internal Server Error` on vision Pass 1, check that Ollama is 
 
 If `PyMuPDF is not installed` appears at startup, the most common cause is running `python segmenter.py` with a different project's venv active. Use `uv run python segmenter.py` instead — uv selects the correct venv automatically.
 
-If the script hangs mid-run, it is most likely waiting for an Ollama response. Text model passes can take 30–120 seconds per investigation depending on page count and model speed. Interrupt with Ctrl+C; completed sites are already saved and will be skipped on the next run.
+If the script hangs mid-run, it is most likely waiting for an Ollama response. Text model passes can take 30–120 seconds per investigation depending on page count and model speed. Interrupt with Ctrl+C; sites already written to disk are safe, but re-running the same invocation reprocesses everything in scope from scratch (there is no skip-if-exists check) — use `--trinomial` to target just the remaining sites, which will land in a new run folder.
 
 ---
 
@@ -180,21 +192,27 @@ num_ctx:              32768
 ```
 
 ```powershell
-# Full corpus run (skips reports that already have output)
+# Full corpus run
 uv run python segment_reports_pass0.py --config config_reports.yaml
 
 # Single report — fastest way to verify output before a corpus run
 uv run python segment_reports_pass0.py --config config_reports.yaml --report "22-0479_Hartfield et al. 1978"
 
-# Re-run into an existing run directory (e.g. to fill in failures)
-uv run python segment_reports_pass0.py --config config_reports.yaml --force --report "22-7597_Zieschang et al. 2024" --run-dir "runs\20260629_1833_b34ed56"
+# Re-run one report with a bigger model (e.g. a report too large for the default model's context)
+uv run python segment_reports_pass0.py --config config_reports.yaml --model qwen2.5:72b --report "22-7597_Zieschang et al. 2024"
 ```
 
-Output goes to `runs/<YYYYMMDD_HHMM_gitsha>/<model>/`, one `<report_name>.segments.json` per report. The format is the same shared segments.json structure used by the site form pipeline, with section types encoded as `<section>_pages` keys rather than investigation-level page types:
+Every invocation creates its own new, flat run folder — `runs/<YYYYMMDD_HHMM>_<gitsha>/` — and never reuses or appends to a previous one (there used to be a `--run-dir` flag for resuming into an existing folder; it was removed because it let `run_metadata.json` get silently overwritten across invocations). If a corpus run is interrupted, re-run with `--report` for the remaining reports; that invocation's outputs land in a separate folder, and each folder's `run_metadata.json` records exactly which reports it covers.
+
+Output files are named `<model_slug>__<report_name>.segments.json`, so a report reprocessed with a different model (like the `qwen2.5:72b` example above) produces a second, distinct file rather than overwriting the first — both are kept, and the filename alone tells you which model produced which. The format is the same shared segments.json structure used by the site form pipeline, with section types encoded as `<section>_pages` keys rather than investigation-level page types, plus `model`, `segmented_at`, `chunked`, and `n_chunks` fields recording exactly what produced that file:
 
 ```json
 {
   "report": "22-0479_Hartfield et al. 1978",
+  "model": "qwen2.5:32b",
+  "segmented_at": "2026-07-07T14:22:03",
+  "chunked": false,
+  "n_chunks": 1,
   "n_headings": 339,
   "n_pages": 180,
   "segments": [
