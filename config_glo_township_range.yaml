@@ -1,0 +1,11 @@
+# ---------------------------------------------------------------------------
+# config_glo_township_range.yaml — segment_glo_township_range.py
+# GLO survey field notes — regex-based Township/Range page mapping
+# ---------------------------------------------------------------------------
+# Usage:
+#   uv run python segment_glo_township_range.py --config config_glo_township_range.yaml
+#   uv run python segment_glo_township_range.py --config config_glo_township_range.yaml --report "507_00121__3N4W+3N5W+4N4W+4N5W__NWD_BK13_WILLIAMS_MCCARTY_MORSE"
+# ---------------------------------------------------------------------------
+
+input_dir:  'C:\Users\jpaige\Desktop\local_repositories\GLO_survey_notes_ocr\Glo_map_field_notes_evangeline_ocr'
+output_dir: 'runs'
