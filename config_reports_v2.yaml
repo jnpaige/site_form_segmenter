@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------
+# config_reports_v2.yaml — segment_reports_pass0.py
+# Phase II reports — full corpus rerun against the freshly-reprocessed OCR
+# output (Phase_II_Reports_ocr_docling_v2, 2026-08, chunk-boundary and
+# rotated-page stamping fixes applied), replacing the prior run's input
+# (G:\...\Phase_II_Reports_ocr_docling\All, an older OCR pass).
+# ---------------------------------------------------------------------------
+# Usage:
+#   uv run python segment_reports_pass0.py --config config_reports_v2.yaml
+# ---------------------------------------------------------------------------
+
+input_dir:   'C:\Users\jpaige\Desktop\local_repositories\Phase_II_Reports_ocr_docling_v2'
+output_dir:  'runs'
+
+model:           'qwen2.5:32b'
+
+# Reports with more headings than this are split into chunks and each chunk
+# is sent as a separate LLM call; results are merged afterwards.
+# Set to 0 to disable chunking. 515 = max heading count in successful single-call
+# runs on the Kisatchie corpus (Morehead et al. 2003).
+chunk_size_headings: 515
+
+base_url:        'http://localhost:11434'
+temperature:     0.05
+timeout_seconds: 1800
+num_ctx:         32768
