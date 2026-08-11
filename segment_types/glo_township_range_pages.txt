@@ -1,0 +1,139 @@
+You are analyzing a window of pages from a 19th-century GLO (General Land
+Office) survey field-note volume, OCR'd from handwritten manuscript. The
+volume records section-line surveys for multiple Townships and Ranges, one
+after another, each block running for anywhere from a few pages to over a
+hundred. Your job is to determine, for every page shown below, which
+Township/Range/Section it belongs to.
+
+ABOUT THE FORMATS YOU WILL SEE:
+Surveyors marked each page with a running header identifying the current
+Township and Range, but the exact wording varies within the SAME volume —
+do not assume only one format is used:
+  - A compact repeating stamp, e.g. "T. 2N R. 6W S.W.D.", "T3N R4W N.W.D.",
+    "T. 8 N. R. 7 W.". This usually appears as a short, isolated line, often
+    near the top of the page.
+  - A verbose header used to introduce a new block, e.g. "Field Notes of
+    Township No. 3 North in Range No. 4 West of the Basis Meridian", or
+    "North Boundary of Township No 13 in Range No. 6 West".
+Both forms are equally valid evidence of which Township/Range a page belongs
+to — treat them the same way. OCR frequently garbles individual characters
+(digits misread as letters or vice versa, e.g. "2" as "Z", "1" as "I" or
+"l"), garbles the direction letters (N/S, E/W, and E/W sometimes misread as
+each other or as F/V), and garbles township/range/section numbers generally.
+Use surrounding context (nearby numbers, the overall flow of the document,
+what block came immediately before) to resolve ambiguous OCR rather than
+requiring a perfectly clean match.
+
+A page may also carry a district code such as "S.W.D." (Southwest District),
+"N.W.D." (Northwest District), "S.E.D.", "N.E.D." — record it if visible,
+leave it blank if not.
+
+IMPORTANT — DO NOT CONFUSE A LISTING WITH A RUNNING HEADER:
+Some pages (often near the start of a volume) are a table of contents or
+survey index, listing MANY different Townships and Ranges assigned to
+different surveyors, one after another in a short list. A page like this is
+NOT itself part of any of those Townships' field notes — label it based on
+what its own surrounding content actually is (often it won't belong to any
+Township at all; that's fine, see NO_MATCH below). Only treat a
+Township/Range mention as the page's own assignment if the page's actual
+substantive content (the survey line descriptions, bearing trees, section
+boundaries) is describing that Township — not just because the words appear
+somewhere on the page.
+
+WATCH FOR CROSS-REFERENCES TO A DIFFERENT TOWNSHIP — THIS IS THE SINGLE
+BIGGEST SOURCE OF ERROR, READ THIS CAREFULLY:
+A common convention in these volumes is a page that says something like "For
+the North Boundary of this Township see the Field Notes of the East
+Boundary of Township No. 1 North in Range No. 4 East." This sentence
+mentions Township 1 North, Range 4 East — but the page containing this
+sentence almost always belongs to a DIFFERENT township (e.g. Township 1
+North, Range 2 East), and is simply directing the reader to consult that
+OTHER township's notes for where their shared boundary runs. Do not let the
+township/range number inside a "see the field notes of..." / "see the
+Field Notes of the [direction] Boundary of..." sentence override the page's
+real assignment.
+
+The single most reliable signal for a page's real assignment is its running
+header stamp (e.g. "T. 1N R. 2E", "TIN RZE", "R 2E") — the short line
+repeated at the top of nearly every page — NOT any township/range number
+that appears inside a full sentence of body text citing another township.
+If a page has its own header stamp, trust the stamp over any number
+mentioned in a cross-reference sentence elsewhere on that same page, even if
+the cross-reference is only one number "off" from the stamp (e.g. stamp says
+Range 2 East, cross-reference sentence mentions Range 4 East — trust the
+stamp: this page is Range 2 East, and Range 4 East is simply the neighboring
+township being cited, not this page's own assignment).
+
+CONTINUATION PAGES:
+Most pages do NOT repeat the header at all — they simply continue the survey
+line descriptions from the previous page with no header text of their own.
+For these pages, assign the SAME Township/Range as the nearest preceding
+page that does show clear evidence, UNLESS the content itself signals a
+change (e.g. it starts describing a different Range's boundary, or a new
+"Field Notes of Township..." header appears partway through this page).
+Use your judgment about narrative continuity, not just the presence or
+absence of a header line.
+
+SECTIONS:
+Separately from Township/Range, record the Section number for each page if
+the text mentions one — most commonly as "___ Boundary of Section No. X"
+(where ___ is North/South/East/West), but also accept other clear phrasings
+that unambiguously name a section number in the context of describing that
+section's boundary or survey line. If a page's text spans a transition
+between two sections (the previous section's description ends and a new
+one begins on the same page), report the section that most of the page's
+substantive content belongs to. If no section is identifiable, leave it
+null — do not guess.
+
+NO_MATCH:
+If a page is a cover sheet, blank, pure OCR noise, or otherwise has no
+identifiable Township/Range content of its own AND no clear preceding
+context to continue from, set township to null.
+
+WATCH FOR A DIGIT+DIRECTION MERGE, ESPECIALLY "S" FOR SOUTH:
+Handwritten "1 S." (Township 1 South) or "2 S." (Township 2 South) is
+frequently OCR'd with the South direction letter crammed against the digit,
+producing what LOOKS like a clean two-digit number ending in 5 — e.g. "1S"
+misread as "15", "2S" misread as "25", "3S" misread as "35". If you see an
+apparent township number in the teens or twenties (e.g. "15", "25") ending
+in 5, be suspicious: check the surrounding text for an explicit "South"
+elsewhere (e.g. "Township No. 1 South", "South of the 31st of Latitude").
+If you find one, the real township number is very likely just the leading
+digit (so "15" -> Township 1, direction South, NOT Township 15), not the
+full two-digit reading. This corpus's townships are consistently small
+numbers (typically well under 10) — a sudden jump to a teens/twenties
+township number is itself a signal to re-examine whether this merge
+happened, rather than taking the apparent number at face value. The same
+caution applies to any apparent number ending in 0 near a possible "North"
+misread, though this is less common than the "S" case.
+
+STRICT OUTPUT FORMAT — READ CAREFULLY:
+township and range must ALWAYS be either a clean number as a string ("1",
+"23") or null. NEVER put a letter, a garbled OCR fragment, a partial word,
+or anything else that is not a clean number into the township or range
+field. township_dir must ALWAYS be exactly "N", exactly "S", or null —
+NEVER any other letter or fragment. range_dir must ALWAYS be exactly "E",
+exactly "W", or null. If you cannot confidently determine a clean number or
+a clean direction letter for a page, use null for that field (and for
+township/range/township_dir/range_dir together if you are not confident of
+the township or range at all) rather than guessing or copying a garbled
+fragment from the page text into the field. A wrong or malformed value is
+worse than null — null is always an acceptable, correct answer when you are
+unsure.
+
+Return ONLY a valid JSON object with no explanation, preamble, or
+surrounding text — one entry per page shown below, in page order:
+{
+  "pages": [
+    {"page": 0, "township": "3", "township_dir": "N", "range": "4", "range_dir": "W", "district": "SWD", "section": null},
+    {"page": 1, "township": "3", "township_dir": "N", "range": "4", "range_dir": "W", "district": "SWD", "section": 22},
+    {"page": 2, "township": null, "township_dir": null, "range": null, "range_dir": null, "district": null, "section": null}
+  ]
+}
+
+township_dir is always "N" or "S". range_dir is always "E" or "W". township
+and range are the plain numbers as strings (no leading zeros). Include every
+page number shown below exactly once, even if you are assigning it null.
+
+PAGES:
+{PAGES}

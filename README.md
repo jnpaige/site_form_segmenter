@@ -254,13 +254,80 @@ Once section page maps and a trinomial list are in hand, pass 2 identifies which
 
 ---
 
+## GLO survey field note segmentation
+
+GLO (General Land Office) survey field-note volumes are a third document shape — 300–430 page manuscript-handwriting volumes, each recording section-line surveys for a dozen or more Township/Range grid cells laid out sequentially (one township's field notes, then the next), further subdivided into individual Sections. Two segmenters produce the identical output schema for this document type; which one to use is a real trade-off, not a strict upgrade path.
+
+### Why two strategies exist
+
+**Regex-based (`segment_glo_township_range.py`, original approach)** — Surveyors marked most pages with a short, repeating running-header stamp ("T. 2N R. 6W S.W.D."). `STAMP_RE` recognizes that stamp (tolerant of common OCR digit/letter confusions), confirms Township/Range directly on pages carrying it, then forward/backward-fills the pages in between from the nearest confirmed neighbors, denoising isolated single-page misreads and splitting genuine transitions at a "Basis Meridian" phrase if one falls in the gap. This is fast (a single regex pass, no LLM call, no GPU) and works well when a volume consistently uses the compact stamp format throughout.
+
+**LLM-based (`segment_glo_township_range_llm.py`)** — A direct read-the-page evaluation of the regex segmenter's output on two real volumes found both switch, partway through, to a second, spelled-out header format ("Field Notes of Township No. 3 North... in Range No. 4 West") that `STAMP_RE` never matches at all. Those pages then get silently absorbed into whichever neighboring block the fill algorithm happens to guess, with zero actual confirmation — on the two volumes checked, this produced segments that were each really 3–4 distinct townships compressed into one label, covering roughly a third of each document. A smaller, separate failure mode: a table-of-contents page listing many townships (assigned to other surveyors, elsewhere in the volume) got matched as if it were a real running-header stamp for the pages that followed it. Because the underlying variation is in how surveyors actually wrote (or how OCR actually misread) a header, no single fixed pattern generalizes — this is a language-understanding problem, not a pattern-matching one, so the fix is an LLM read of the actual page content rather than a better regex.
+
+Architecturally, this is closer to [report pass 1](#full-text-approach-pass-1) than [report pass 2](#trinomial-extraction-and-downstream-passes): GLO township/range blocks are sequential across the document, like report sections, not scattered/interleaved like trinomial mentions — so the right mechanism is one linear pass identifying block boundaries, not a full-document search repeated per known entity. The one thing pass 1 has that GLO documents don't is a cheap, compact heading list to send in a single call; pdf_ocr does not reliably produce `headings.json` for this corpus, so `segment_glo_township_range_llm.py` sends real page text instead, chunked into **overlapping windows** (`window_size` pages per call, advancing by `window_stride`, so consecutive windows share `window_size - window_stride` pages). A page inside the overlap is read independently by two calls — if they agree, that's corroborated evidence; if they disagree, the page is flagged in `_boundary_disagreements` rather than resolved by an arbitrary tie-break (the more-centered read, further from either window's edge, wins, but the disagreement stays visible). Within each window, the model assigns *every* page a Township/Range/Section directly — including pages with no header of their own, using narrative continuity — rather than the regex version's separate detect-then-statistically-fill steps.
+
+Both scripts read either `text_docling.txt` or pdf_ocr's page-scoped `<stem>.md` (set `source: 'txt'` or `source: 'md'` in config) — table structure in `.md` doesn't matter much for detecting a stamp line, but real narrative content matters more for the LLM version's continuity reasoning, so `md` is the recommended `source` for the LLM segmenter where available.
+
+**Practical guidance**: run the regex version first — it's instant and free. If a volume's `township_range_map.md` shows large, single-stamp-confidence blocks spanning 100+ pages, or you're relying on downstream extraction accuracy for a specific volume, re-run that volume through the LLM version and compare; the LLM version's `_boundary_disagreements` and `confidence_counts` (now `multi_window_agreement`/`single_window`/`multi_window_disagreement`/`unassigned`, reflecting genuine cross-window corroboration rather than statistical interpolation) tell you directly which pages are still uncertain, instead of the regex version's "zero unmapped pages" which looked reassuring but really just meant the fill algorithm always produces *an* answer, right or wrong.
+
+### Output schema
+
+Both segmenters write the identical shape, so `site_vocab_extractor` and `locate_and_annotate.py` (in [pdf_ocr](https://github.com/jnpaige/pdf_ocr)) consume either interchangeably with no code changes:
+
+```json
+{
+  "segments": [
+    {
+      "label": "T3N_R4W",
+      "township": "3N",
+      "range": "4W",
+      "district": "SWD",
+      "pages": [102, 103, 104, "..."],
+      "t3n_r4w_pages": [102, 103, 104, "..."],
+      "page_span": [102, 145],
+      "n_pages": 44,
+      "confidence_counts": {"multi_window_agreement": 40, "single_window": 3, "multi_window_disagreement": 1},
+      "t3n_r4w_s12_pages": [110, 111],
+      "sections": [{"section": 12, "pages": [110, 111]}]
+    }
+  ]
+}
+```
+
+`confidence_counts` keys differ by method (`direct`/`interpolated`/`interpolated-boundary`/`edge-extrapolated` for regex, `multi_window_agreement`/`single_window`/`multi_window_disagreement`/`unassigned` for LLM) — both describe *how* each page's assignment was arrived at, but any code reading only `label`/`township`/`range`/`pages`/`sections` (as `site_vocab_extractor` and `locate_and_annotate.py` do) is unaffected either way.
+
+### Usage
+
+```powershell
+# Regex — instant, free, good default first pass
+uv run python segment_glo_township_range.py --config config_glo_township_range.yaml
+uv run python segment_glo_township_range.py --config config_glo_township_range.yaml --report "507_00056__..."
+
+# LLM — slower (a 32b-model call per ~25-page window), re-run per volume where regex looks weak
+uv run python segment_glo_township_range_llm.py --config config_glo_township_range_llm.yaml
+uv run python segment_glo_township_range_llm.py --config config_glo_township_range_llm.yaml --report "507_00056__..."
+```
+
+```yaml
+# config_glo_township_range_llm.yaml
+input_dir:  'path/to/pdf_ocr/output'
+output_dir: 'runs'
+source:     'md'            # 'txt' or 'md' — both segmenters support either
+model:            'qwen2.5:32b'
+window_size:      25          # pages per LLM call
+window_stride:    20          # advance per call; window_size - window_stride = overlap
+```
+
+---
+
 ## Segment type prompts
 
-All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts are prefixed `report_`:
+All prompts live in `segment_types/`. Each pass has its own file so prompts can be tuned independently without touching code. The prompts for site forms are prefixed `site_form_`. Report-mode prompts are prefixed `report_`. GLO field-note prompts are prefixed `glo_`:
 
 - `report_pass0_sections.txt` — heading-only section classifier; primary approach for most reports
 - `report_pass1_sections.txt` — full-text section classifier; fallback for sparse-heading documents
 - `report_pass2_trinomial_pages.txt` — per-trinomial page narrowing within identified sections
+- `glo_township_range_pages.txt` — per-page Township/Range/Section classifier for overlapping page windows; used by `segment_glo_township_range_llm.py`
 
 ---
 

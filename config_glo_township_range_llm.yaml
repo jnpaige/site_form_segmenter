@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# config_glo_township_range_llm.yaml — segment_glo_township_range_llm.py
+# GLO survey field notes — LLM-based Township/Range/Section page mapping
+# (see that script's module docstring for why this exists alongside the
+# regex-based segment_glo_township_range.py)
+# ---------------------------------------------------------------------------
+# Usage:
+#   uv run python segment_glo_township_range_llm.py --config config_glo_township_range_llm.yaml
+#   uv run python segment_glo_township_range_llm.py --config config_glo_township_range_llm.yaml --report "507_00056__3N1W+4N2W+4N3W__SWD_BK5_MCCRUMMIN"
+# ---------------------------------------------------------------------------
+
+input_dir:  'C:\Users\jpaige\Desktop\local_repositories\GLO_survey_notes_ocr\Glo_map_field_notes_evangeline_ocr'
+output_dir: 'runs'
+
+# "txt" reads pdf_ocr's text_docling.txt; "md" reads pdf_ocr's <stem>.md
+# (page-scoped, real Docling table structure on assembled pages) — both share
+# the identical === Page N === delimiter this script parses on.
+source: 'md'
+
+model: 'qwen2.5:32b'
+base_url: 'http://localhost:11434'
+temperature: 0.05
+num_ctx: 32768
+timeout_seconds: 1800
+
+# Pages per LLM call, and how far the next window advances — window_size 25,
+# window_stride 20 means consecutive windows share a 5-page overlap, which is
+# what lets a page's Township/Range assignment be cross-checked by two
+# independent reads instead of trusted from a single call.
+window_size: 25
+window_stride: 20

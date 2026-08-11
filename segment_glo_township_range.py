@@ -264,8 +264,19 @@ def _fill_pages(
 # Per-document segmentation
 # ---------------------------------------------------------------------------
 
-def segment_document(doc_dir: Path) -> dict | None:
-    txt_path = doc_dir / "text_docling.txt"
+def _source_path(doc_dir: Path, source: str) -> Path:
+    """source: "txt" (default) reads pdf_ocr's text_docling.txt; "md" reads
+    pdf_ocr's <stem>.md — as of pdf_ocr's page-scoped Markdown rewrite, both
+    share the identical `=== Page N ===` delimiter parse_pages() expects, and
+    .md additionally carries table structure (docling's real markdown export)
+    on pages that didn't need the raw-OCR fallback."""
+    if source == "md":
+        return doc_dir / f"{doc_dir.name}.md"
+    return doc_dir / "text_docling.txt"
+
+
+def segment_document(doc_dir: Path, source: str = "txt") -> dict | None:
+    txt_path = _source_path(doc_dir, source)
     if not txt_path.exists():
         return None
 
@@ -458,6 +469,8 @@ def main() -> None:
     ap.add_argument("--report", default=None, metavar="NAME",
                     help="Process only this document directory (exact name)")
     ap.add_argument("--output-dir", default=None, metavar="PATH")
+    ap.add_argument("--source", default=None, choices=["txt", "md"], metavar="txt|md",
+                    help="Which pdf_ocr output to segment: text_docling.txt (default) or <stem>.md")
     args = ap.parse_args()
 
     cfg: dict = {}
@@ -469,6 +482,7 @@ def main() -> None:
 
     input_dir_str = args.input_dir or cfg.get("input_dir")
     output_dir_str = args.output_dir or cfg.get("output_dir", "runs")
+    source = args.source or cfg.get("source", "txt")
 
     if not input_dir_str:
         sys.exit("--input-dir is required (or set input_dir in config)")
@@ -476,12 +490,13 @@ def main() -> None:
     if not root.is_dir():
         sys.exit(f"Not a directory: {root}")
 
-    # Discover document directories (anything with text_docling.txt), same
-    # discovery pattern as segment_reports_pass0.py but keyed on
-    # text_docling.txt directly rather than headings.json (which the current
-    # pdf_ocr pipeline does not reliably produce).
+    # Discover document directories: any immediate subdirectory that has the
+    # selected source file. Same discovery pattern as segment_reports_pass0.py
+    # but keyed on pdf_ocr's own text output directly rather than
+    # headings.json (which the current pdf_ocr pipeline does not reliably
+    # produce).
     doc_dirs = sorted(
-        p.parent for p in root.rglob("text_docling.txt")
+        d for d in root.iterdir() if d.is_dir() and _source_path(d, source).exists()
     )
 
     if args.report:
@@ -490,7 +505,7 @@ def main() -> None:
             sys.exit(f"Document not found: {args.report}")
 
     if not doc_dirs:
-        sys.exit(f"No text_docling.txt files found under: {root}")
+        sys.exit(f"No {'<stem>.md' if source == 'md' else 'text_docling.txt'} files found under: {root}")
 
     run_dir = _make_run_dir(Path(output_dir_str))
 
@@ -512,6 +527,7 @@ def main() -> None:
         yaml.dump({
             "method": METHOD,
             "pattern_version": PATTERN_VERSION,
+            "source": source,
             "regex_patterns": {
                 "township_range_stamp": STAMP_RE.pattern,
                 "district_code":        DISTRICT_RE.pattern,
@@ -567,7 +583,7 @@ def main() -> None:
         print(f"  [segment] {doc_dir.name} ...", end=" ", flush=True)
         t0 = time.monotonic()
 
-        result = segment_document(doc_dir)
+        result = segment_document(doc_dir, source=source)
 
         elapsed = time.monotonic() - t0
 
