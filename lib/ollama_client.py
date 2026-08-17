@@ -1,13 +1,54 @@
 """Ollama REST client with text and vision support, thread-safe token stats."""
+import ipaddress
 import json
 import re
 import threading
 import time
+from urllib.parse import urlparse
 
 import httpx
 
 _lock = threading.Lock()
 _stats: dict = {"prompt_tokens": 0, "completion_tokens": 0, "elapsed_s": 0.0}
+
+
+def assert_local_inference(base_url: str) -> None:
+    """Raise unless base_url points at an inference host on this machine.
+
+    To help meet broad data security requirements across domains, the
+    ability to pass content to an outside model, or to send it to an outside
+    server, is walled off here. base_url is the single config value that
+    decides where document content goes — text in text mode, rendered page
+    images in vision mode — so it is checked on every request rather than
+    trusted.
+
+    Raises rather than warns, and has no override flag: a warning in a long
+    batch run scrolls past unread, and an override that exists gets used. If
+    a non-local inference host is ever approved, add the flag in that
+    commit, so the decision shows up in a diff rather than sitting here
+    pre-granted.
+
+    Called from _post rather than at config load, so every entry point that
+    reaches Ollama through this module is covered — segmenter.py,
+    segment_reports_pass0.py, segment_glo_township_range_llm.py — without
+    each one having to remember. Kept in sync with site_coder's copy; the
+    two clients are intentionally parallel.
+    """
+    host = urlparse(base_url).hostname
+    if host is None:
+        raise ValueError(f"base_url is not a parseable URL: {base_url!r}")
+    if host == "localhost":
+        return
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass  # a hostname, not an IP literal — cannot be confirmed local here
+    raise ValueError(
+        f"Refusing to send content to a non-local inference host: {base_url!r}\n"
+        "Outbound model calls are walled off by design. Point base_url at an "
+        "Ollama instance running on this machine (http://localhost:11434)."
+    )
 
 
 def call_ollama(
@@ -68,6 +109,7 @@ def call_ollama_vision(
 
 
 def _post(payload: dict, base_url: str, timeout: float, label: str) -> str | None:
+    assert_local_inference(base_url)
     t0 = time.monotonic()
     try:
         resp = httpx.post(f"{base_url}/api/chat", json=payload, timeout=timeout)

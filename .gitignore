@@ -1,7 +1,139 @@
+# This repo has a public remote, and the pipeline it belongs to handles site
+# forms whose locational data is legally restricted. So the policy is
+# deny-by-default for anything data-shaped: code, config, and docs are tracked,
+# research material never is. Committing data should take a deliberate act
+# rather than remembering to add a rule.
+#
+# Need to commit something matched below? `git add -f <path>` — after checking
+# that it really carries no site data.
+#
+# Note: .gitignore only governs *untracked* files. If something sensitive is
+# already tracked, `git rm --cached <path>` first, and rewrite history if it has
+# been pushed.
+
+# --- Environment, caches, build artifacts ----------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- This tool's own output ------------------------------------------------
+# Segment maps name every site in a batch and the pages its record occupies.
 runs/
 output/
-.venv/
-__pycache__/
-*.pyc
+out/
+*.segments.json
+
+# --- Documents and scans ---------------------------------------------------
+# Includes the page images rendered for vision mode, if any are ever written
+# to disk rather than held in memory.
+*.pdf
+*.doc
+*.docx
+*.rtf
+*.odt
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tif
+*.tiff
+
+# --- Tabular and statistical data ------------------------------------------
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.xlsm
+*.ods
+*.parquet
+*.feather
+*.dta
+*.sav
+*.rds
+*.RData
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Structured pipeline data ----------------------------------------------
+# Every JSON here is data, not config: segment maps, run metadata, inventory
+# rows. Nothing this program needs in order to run is a .json file.
+*.json
+*.jsonl
+*.ndjson
+
+# --- Extracted text and logs -----------------------------------------------
+# pdf_ocr writes page text as .txt; logs quote prompts and document contents.
+# The prompt templates in segment_types/ are also .txt — they are code, not
+# corpus data, and are re-allowed at the bottom of this file.
+*.txt
+*.log
+
+# --- Geospatial ------------------------------------------------------------
+# Site coordinates are the most restricted material in the corpus.
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.sbn
+*.sbx
+*.qpj
+*.kml
+*.kmz
+*.gpkg
+*.geojson
+*.gml
+*.gdb/
+
+# --- Archives (an export, zipped, is still an export) ----------------------
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.tgz
+*.bz2
+
+# --- Secrets ---------------------------------------------------------------
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+credentials*
+secrets*
+
+# --- Editor, R, and OS cruft -----------------------------------------------
+.Rhistory
+.Rproj.user/
+.Rproj
 .idea/
-*.egg-info/
+.vscode/
+.claude/
+*.swp
+*~
+~$*
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Always keep: what this program needs to run ---------------------------
+# Explicit, so no broad rule above can ever quietly drop one of them. The
+# prompt templates matter most here: they are .txt, a new one would otherwise
+# be silently untracked, and a segmentation pass is not reproducible without
+# the exact prompt that produced it.
+!.gitignore
+!README.md
+!pyproject.toml
+!uv.lock
+!segment_types/
+!segment_types/*.txt
