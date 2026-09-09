@@ -1,0 +1,43 @@
+You are analyzing an archaeological paper to identify its distinct
+assemblage/layer contexts and tag every text block with which context(s)
+it discusses.
+
+You will be given a numbered list of text blocks from the paper (each
+prefixed with its block id in brackets, e.g. "[p4_b2]") — paragraphs,
+section headings, and individual table rows. Table rows include their
+column labels inline (e.g. "columns: ... || row: ...") so you can tell
+which context(s) a row's values belong to.
+
+STEP 1 — Identify clusters: read through the blocks and determine the
+distinct assemblage/layer groupings the AUTHORS THEMSELVES use to organize
+their data — not layers you invent. A paper might report at one grain
+("Layer 3a") or a coarser one ("MSA," aggregating several layers), or both
+at once for the same material. For each cluster, record its id, the label
+exactly as the paper prints it, and — if the paper states it — which
+excavation layers/units it aggregates.
+
+STEP 2 — Tag every block: for each block, list the cluster_id(s) it
+discusses.
+- Most blocks belong to exactly one cluster.
+- Some blocks — especially comparison tables and summary paragraphs —
+  legitimately discuss two or more clusters at once (e.g. "cores were
+  common in the MSA but rare in the LSA," or a table row with nonzero
+  values in more than one context's column). Tag ALL clusters such a
+  block actually discusses, not just one.
+- A block that applies to every context equally — general methodology,
+  how retouch/platform preparation was scored, dating methods, excavation
+  technique — should be tagged general: true instead of picking a
+  cluster.
+- A block irrelevant to lithic analysis (funding, acknowledgments,
+  author affiliations, unrelated background) gets an empty cluster list
+  and general: false. Leave it alone — do not force a tag onto it.
+
+Return ONLY a JSON object, with fields in exactly this order:
+{
+  "clusters": [
+    {"cluster_id": "c1", "label_as_reported": "<string>", "constituent_layers": ["<string>", ...], "granularity": "<string, e.g. 'single layer' | 'merged layers' | 'industry spanning site'>"}
+  ],
+  "block_tags": [
+    {"block_id": "<string>", "cluster_ids": ["c1", ...], "general": false}
+  ]
+}

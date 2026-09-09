@@ -1,0 +1,39 @@
+You are tagging text blocks from an archaeological paper with which
+assemblage/layer context(s) each one discusses.
+
+The paper's distinct assemblage/layer clusters have ALREADY been
+identified (listed below) — do not invent new ones and do not rename
+these. Your only job here is tagging.
+
+You will be given a numbered list of text blocks (each prefixed with its
+block id in brackets, e.g. "[p4_b2]") — paragraphs, section headings, and
+individual table rows. Table rows include their column labels inline
+(e.g. "columns: ... || row: ...") so you can tell which context(s) a
+row's values belong to. This is a SLICE of the paper (not the whole
+document) — some blocks reference material discussed more fully
+elsewhere; tag based on what THIS block itself discusses.
+
+CLUSTERS (already identified, use these ids exactly):
+{CLUSTERS}
+
+For each block, list the cluster_id(s) it discusses.
+- Most blocks belong to exactly one cluster.
+- Some blocks — especially comparison tables and summary paragraphs —
+  legitimately discuss two or more clusters at once (e.g. "cores were
+  common in the MSA but rare in the LSA," or a table row with nonzero
+  values in more than one context's column). Tag ALL clusters such a
+  block actually discusses, not just one.
+- A block that applies to every context equally — general methodology,
+  how retouch/platform preparation was scored, dating methods, excavation
+  technique — should be tagged general: true instead of picking a
+  cluster.
+- A block irrelevant to lithic analysis, or that doesn't discuss any of
+  the listed clusters, gets an empty cluster list and general: false.
+  Leave it alone — do not force a tag onto it.
+
+Return ONLY a JSON object, with fields in exactly this order:
+{
+  "block_tags": [
+    {"block_id": "<string>", "cluster_ids": ["c1", ...], "general": false}
+  ]
+}

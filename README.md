@@ -254,6 +254,26 @@ Once section page maps and a trinomial list are in hand, pass 2 identifies which
 
 ---
 
+## Figure classification
+
+`classify_figures.py` flags each figure extracted by [pdf_ocr](https://github.com/jnpaige/pdf_ocr) (`docling.extract_figures: true`) into one or more visual classes using a small local vision model — a separate pipeline stage from page/investigation segmentation above, run over pdf_ocr's `figures/figures.json` output rather than page text. Figures aren't scoped to a trinomial/investigation the way pages are, so it walks pdf_ocr's output directory directly rather than using `grouper.py`'s trinomial grouping.
+
+Classes are config-driven, not hardcoded — `figure_classes` in `config_figures.yaml` is a list of `{key, label, description}` entries rendered into the prompt at runtime, so adding or renaming a class is a config edit, not a code change. Classification is multi-label: a composite figure (e.g. a map and a stratigraphic column side by side) is tagged with every class that applies rather than forced into one bucket, plus a `primary_class` for simple sorting. Each document's output carries a `<class_key>_figures` list per configured class, mirroring the page segmenter's `<type>_pages` convention above so downstream tools can request e.g. `lithic_tool_figures` the same way they already request `narrative_pages`.
+
+When pdf_ocr's figure-context enrichment ran (caption/heading path/surrounding text in `figures.json`), that text is included alongside the image as disambiguating context — the image is still primary evidence.
+
+```powershell
+uv run python classify_figures.py                      # all documents, config_figures.yaml
+uv run python classify_figures.py --pdf "16WN385"       # single document
+uv run python classify_figures.py --model qwen2.5vl:7b  # override vision_model
+```
+
+Output follows the same run-metadata standard as the rest of this repo: `runs/<YYYYMMDD_HHMM>_<gitsha>/` containing a config snapshot, `prompts.yaml`, `run_metadata.json`, `inventory.csv`, one `<model_slug>__<pdf_stem>.figure_segments.json` per document, and `figure_classification_map.md`/`figure_classes.csv` for human/machine review (via `lib/figure_reporter.py`, a variant of `lib/reporter.py` shaped for a variable-length multi-label set instead of a handful of fixed page-type columns).
+
+**Model choice.** This is meant to be a cheap, small-model triage pass, not the final trusted classification — validated against `qwen2.5vl:7b` (a 6GB-VRAM-class model): it correctly caught non-figure noise (a journal masthead logo Docling mis-extracted as a "picture" on nearly every page, tagged `other`) and correctly multi-labeled real composite figures, but also showed real errors on nuanced multi-panel figures — e.g. tagging a photo panel as `map` and inferring `artifact_image` from an on-image text label reading "Artefacts in situ" rather than an actual depicted artifact. Treat its output as a routing signal to spot-check, not ground truth — the same caution this repo already gives `qwen2.5:14b` vs `qwen2.5:32b` for page-boundary detection above applies here too.
+
+---
+
 ## GLO survey field note segmentation
 
 GLO (General Land Office) survey field-note volumes are a third document shape — 300–430 page manuscript-handwriting volumes, each recording section-line surveys for a dozen or more Township/Range grid cells laid out sequentially (one township's field notes, then the next), further subdivided into individual Sections. Two segmenters produce the identical output schema for this document type; which one to use is a real trade-off, not a strict upgrade path.

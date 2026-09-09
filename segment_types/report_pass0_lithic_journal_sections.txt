@@ -1,0 +1,87 @@
+You are analyzing the heading structure of a published archaeology journal
+article reporting on a lithic (stone tool) assemblage from one or more
+excavated sites.
+
+ABOUT THE INPUT:
+The heading list below was automatically extracted from the article's text,
+produced by a Docling OCR/layout pipeline that marks recognized headings
+with "##". The list records each heading and the page it appears on
+(0-indexed from the start of the PDF). Numbering and depth vary by journal
+and author; treat the list as a flat sequence of labeled page markers —
+you do not need to reason about nesting.
+
+Each heading entry may include a short text excerpt after a ` | ` separator
+— the first non-heading text following that heading on its page. Use it to
+tell a real section start from a spurious OCR match.
+
+ABOUT THE CORPUS:
+These are standard IMRaD-structured journal articles (Introduction,
+Materials and Methods, Results, Discussion, Conclusions), though exact
+headings vary. The underlying sections are consistent:
+
+- FRONT_MATTER: Journal branding, title, author list, affiliations,
+  "article info" boxes, table of contents listings. Always at the very
+  start.
+
+- ABSTRACT: The brief summary at the article's start. May be labeled
+  "Abstract" or "Summary".
+
+- BACKGROUND: General introduction and literature review NOT specific to
+  this site's own stratigraphy or excavation — regional context, prior
+  research elsewhere, theoretical framing. Typically "1. Introduction" and
+  early numbered subsections about the broader research problem.
+
+- SITE_CONTEXT: Description of the excavated site itself — its location,
+  stratigraphy, excavation units, dating, chronology, depositional layers.
+  THIS IS WHERE THE PAPER USUALLY DEFINES THE LAYERS/ASSEMBLAGES the rest
+  of the paper analyzes — treat it as important, not boilerplate, even
+  though it's often still under an "Introduction" or "1.2 Site and
+  environment"-style heading.
+
+- METHODS: How fieldwork, lab analysis, or lithic classification were
+  conducted — typology used, how retouch/platform preparation was scored,
+  raw material sourcing methods, refitting, dating methods.
+
+- RESULTS: The substantive lithic findings — artifact frequencies, core
+  reduction, flake attributes, retouched tool description, raw material
+  analysis, use-wear. Usually the longest section, often with numbered
+  subsections. This is the primary target of this pipeline.
+
+- DISCUSSION: Interpretation and comparison — including comparison BETWEEN
+  the paper's own assemblages/layers, and comparison with other sites.
+  Comparative discussion often contains exactly the cross-context
+  statements this pipeline needs to catch, so treat it as important
+  alongside Results, not as background.
+
+- CONCLUSIONS: Final summary/conclusions section.
+
+- BOILERPLATE_END: Declaration of competing interest, Acknowledgments,
+  Supplementary Online Material, References, Appendices unless an appendix
+  contains its own substantive data tables (if so, note it separately
+  rather than lumping it into boilerplate_end).
+
+YOUR TASK:
+Review the heading list and assign every page to exactly one of the
+categories above. A section ends where the next logically distinct section
+begins. Sub-headings within a section (e.g. "3.1 Local stone sources"
+inside Results) do not start a new top-level category — fold them into
+whichever category their parent section belongs to.
+
+Return ONLY a JSON object — no explanation, no markdown. Each key is a
+category; its value is an array of one or more segment objects, each with
+a label and page list. Omit a category entirely if the paper has none of
+it:
+{
+  "front_matter": [{"label": "Title/authors/journal front matter", "pages": [0]}],
+  "abstract": [{"label": "Abstract", "pages": [0]}],
+  "background": [{"label": "1. Introduction", "pages": [1, 2]}],
+  "site_context": [{"label": "1.2 Site and environment", "pages": [3]}],
+  "methods": [{"label": "2. Materials and methods", "pages": [3, 4, 5, 6]}],
+  "results": [{"label": "3. Results", "pages": [6, 7, 8, 9, 10, 11, 12, 13, 14]}],
+  "discussion": [{"label": "4. Discussion", "pages": [14, 15, 16, 17, 18, 19, 20, 21]}],
+  "conclusions": [{"label": "5. Conclusions", "pages": [21]}],
+  "boilerplate_end": [{"label": "Competing interest, Acknowledgments, References", "pages": [22, 23, 24]}]
+}
+
+HEADING LIST:
+{HEADINGS}

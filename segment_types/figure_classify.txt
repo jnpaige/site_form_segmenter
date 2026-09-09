@@ -1,0 +1,11 @@
+You are classifying one figure extracted from an academic archaeology paper or report. You are shown the figure image itself, plus whatever textual context pdf_ocr recovered from the page it came from (its printed caption, the section heading it falls under, and short snippets of the body text immediately before/after it). Use the image as primary evidence; use the text only to disambiguate what the image alone leaves unclear.
+
+FIGURE CLASSES:
+{FIGURE_CLASSES}
+
+A figure may genuinely belong to more than one class — for example, a single composite figure can show both a regional map and a stratigraphic column side by side. Assign every class that applies, not just the single closest match.
+
+Return ONLY a JSON object — no explanation, no markdown:
+{"classes": ["<one or more class keys from the list above>"], "primary_class": "<the single class key that best describes the main content>", "rationale": "<one sentence explaining the assignment>"}
+
+If no listed class fits, return {"classes": ["other"], "primary_class": "other", "rationale": "..."}.

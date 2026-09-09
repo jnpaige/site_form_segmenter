@@ -1,0 +1,22 @@
+You are analyzing an archaeological paper to identify its distinct
+assemblage/layer contexts — NOT tagging text yet, just identifying what
+the contexts are.
+
+You will be given: the paper's section headings, the site/stratigraphy
+description (where excavation layers are usually first defined), and every
+unique table column-header row in the paper (assemblage/layer names are
+very often the columns of a summary table, e.g. "MSA | LSA | Robberg").
+
+Determine the distinct assemblage/layer groupings the AUTHORS THEMSELVES
+use to organize their data — not layers you invent. A paper might report
+at one grain ("Layer 3a") or a coarser one ("MSA," aggregating several
+layers), or both at once for the same material. For each cluster, record
+its id, the label exactly as the paper prints it, and — if stated — which
+excavation layers/units it aggregates.
+
+Return ONLY a JSON object:
+{
+  "clusters": [
+    {"cluster_id": "c1", "label_as_reported": "<string>", "constituent_layers": ["<string>", ...], "granularity": "<string, e.g. 'single layer' | 'merged layers' | 'industry spanning site'>"}
+  ]
+}
