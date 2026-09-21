@@ -1,22 +1,83 @@
-You are analyzing an archaeological paper to identify its distinct
-assemblage/layer contexts — NOT tagging text yet, just identifying what
-the contexts are.
+You are analyzing an archaeological paper to identify the distinct ASSEMBLAGES
+it reports — NOT tagging text yet, just identifying what the assemblages are.
 
-You will be given: the paper's section headings, the site/stratigraphy
-description (where excavation layers are usually first defined), and every
-unique table column-header row in the paper (assemblage/layer names are
-very often the columns of a summary table, e.g. "MSA | LSA | Robberg").
+The variables below follow the ROCEEH Out of Africa Database (ROAD), the
+standard research database for this literature, so that what you extract lines
+up with an existing framework rather than an ad-hoc one:
 
-Determine the distinct assemblage/layer groupings the AUTHORS THEMSELVES
-use to organize their data — not layers you invent. A paper might report
-at one grain ("Layer 3a") or a coarser one ("MSA," aggregating several
-layers), or both at once for the same material. For each cluster, record
-its id, the label exactly as the paper prints it, and — if stated — which
-excavation layers/units it aggregates.
+  LOCALITY      the specific excavated site an assemblage came from —
+                "Koimilot (GnJh-74)", "MAK33", "Panga ya Saidi".
+                NOT the basin, pan, formation, valley, region or country that
+                contains it. A paper reporting five excavated sites in the
+                Makgadikgadi Basin has five localities — MAK2, MAK14K, MAK14O,
+                MAK15, MAK33 — and none of them is called "Makgadikgadi
+                Basin". If a name denotes an area containing several sites,
+                it is not a locality.
+  LAYER         a stratigraphic unit within a locality. ROAD keeps two kinds
+                apart and so should you:
+                  archaeological_layer — defined by its cultural content
+                                         ("the ~10 cm artefact layer",
+                                          "Layer 3a", "levels IId-IIf")
+                  geological_layer     — defined by sediment/deposit
+                                         ("Bedded Tuff Member", "channel sands")
+  ASSEMBLAGE    the material recovered from a locality, in a layer where the
+                paper defines one. This is the unit you are reporting.
+                Assemblages are found in localities; assemblages lie in layers.
 
-Return ONLY a JSON object:
+WHAT AN ASSEMBLAGE IS HERE:
+One assemblage per (locality, layer) combination the paper reports data for.
+
+  - A paper excavating two loci at one site reports TWO assemblages, both with
+    the same locality, each with its own layer.
+  - A paper excavating five separate sites reports FIVE assemblages, each with
+    its own locality — even when it discusses them together as one industry.
+  - A paper reporting one undivided collection from one site reports ONE
+    assemblage, with the locality named and the layer left null. This is
+    common and correct; it is not a failure and not a reason to return nothing.
+  - Where the paper gives no layer subdivision, leave the layer null rather
+    than inventing one. Surface scatters and deflated sites often have none.
+
+THE INDUSTRY IS NOT AN ASSEMBLAGE — IT IS A FIELD ON ONE.
+An industry, culture or technocomplex ("Middle Stone Age", "Aurignacian",
+"Later Stone Age", "Oldowan") classifies assemblages; it does not contain them
+the way a locality contains a layer. Record it in `archaeological_stratigraphy`
+on each assemblage it applies to. Do NOT emit a separate assemblage for the
+industry itself, even when the paper's title and abstract are framed around it
+— a reader wanting the industry-level view gets it by grouping assemblages on
+this field, and that view is recoverable, whereas per-locality detail collapsed
+into a single industry-level entry is not.
+
+So a paper on "the Makgadikgadi MSA industry" spanning five excavated sites
+yields five assemblages, each with archaeological_stratigraphy "Middle Stone
+Age" — not six entries, and not one.
+
+RECONCILE BEFORE YOU REPORT.
+The evidence reaches you through several channels (headings, prose, whole
+tables, figure captions), so the same assemblage
+often appears under more than one spelling, and OCR adds further variants.
+These are ONE assemblage, not several:
+  - numeral style      "Trench 1" / "Trench I";  "Layer 2" / "Layer II"
+  - case and spacing   "Locus 1" / "LOCUS 1" / "Locus1"
+  - abbreviation       "Middle Stone Age" / "MSA" for the same material
+  - OCR damage         an en-dash misread as a letter: "Layers 3-1" -> "3 e 1"
+Merge them, report the label the paper uses most consistently, cleaned of
+obvious OCR damage, and list what you merged in `also_known_as`. If unsure
+whether two names denote different assemblages or one, prefer merging.
+
+Return ONLY a JSON object. `cluster_id` is the identifier the tagging pass will
+use, so every assemblage needs one:
 {
   "clusters": [
-    {"cluster_id": "c1", "label_as_reported": "<string>", "constituent_layers": ["<string>", ...], "granularity": "<string, e.g. 'single layer' | 'merged layers' | 'industry spanning site'>"}
+    {
+      "cluster_id": "c1",
+      "label_as_reported": "<assemblage as the paper names it>",
+      "also_known_as": ["<merged variants>"],
+      "locality": "<site name, as printed>",
+      "archaeological_layer": "<layer defined by cultural content, or null>",
+      "geological_layer": "<sediment/deposit unit, or null>",
+      "archaeological_stratigraphy": "<industry/culture, e.g. 'Middle Stone Age', or null>",
+      "n_artefacts": <integer or null>,
+      "evidence": ["<channels that named it, e.g. 'TABLES', 'FIGURE CAPTIONS'>"]
+    }
   ]
 }

@@ -1,0 +1,57 @@
+You are reading the raw OCR text of a published archaeology journal article
+reporting on a lithic (stone tool) assemblage from one or more excavated
+sites. Your job is to find this article's SECTION HEADINGS.
+
+ABOUT THE INPUT:
+The text is given page by page, each page introduced by a "=== Page N ==="
+marker. The layout software failed to recognize this document's structure, so
+nothing is marked up: headings appear as ordinary lines of text, exactly as
+printed in the article.
+
+The text also preserves the original line breaks of the printed page, and the
+article is typeset in columns. A single sentence is therefore split across
+many short lines, and a short line is NOT evidence of a heading. For example:
+
+    The results point to its relevance for the cha-
+    Middle Dorset, and to its potential contribu-
+
+Those are mid-sentence fragments of running prose, not headings. Real headings
+are short, grammatically complete labels for a section of the article, and the
+text that follows one reads as the start of a new topic.
+
+WHAT COUNTS AS A HEADING:
+- Section names of the kind journal articles use — "Introduction", "The Site",
+  "Materials and Methods", "Raw Material Procurement", "Lithic Analysis",
+  "Results", "Discussion", "Conclusion", "Acknowledgements" — whether or not
+  they are numbered ("3.2 Core Reduction").
+- Site- or assemblage-specific section names, which are often the most
+  important ones here: "The GhGk-63 Site", "Layer C Assemblage", "Excavations
+  at Locus 2".
+
+WHAT DOES NOT COUNT:
+- Mid-sentence line fragments, including ones that begin with a capital letter
+  or end with a hyphen.
+- The article title, author names, affiliations, journal name, running heads,
+  page numbers, DOIs, URLs, copyright and access statements.
+- Figure and table captions ("Fig. 3. Artifacts from...", "Table 2. Attribute
+  data...").
+- Bibliography entries and any heading inside the references section.
+- A line that is simply a proper noun mentioned in passing within a paragraph.
+
+RULES:
+- Return each heading EXACTLY as it appears in the text, character for
+  character. Do not tidy, expand, renumber, translate or re-case it. The text
+  you return is checked against the page, and a heading that does not match
+  the page verbatim is discarded.
+- Give the page number from the "=== Page N ===" marker the heading appears
+  under.
+- If the article genuinely has no headings on a page, return none for it.
+- Prefer omitting a doubtful line to including it. A missed heading costs less
+  here than a fragment of prose promoted to a section boundary.
+
+Return ONLY a JSON object — no explanation, no markdown:
+{
+  "headings": [
+    {"page": 3, "text": "<heading exactly as printed>"}
+  ]
+}

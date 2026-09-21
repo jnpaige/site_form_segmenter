@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# config_knf_pilot_full.yaml — full re-segmentation of the KNF corpus
+# ---------------------------------------------------------------------------
+# Decided 2026-08-30. Rationale and provenance:
+#   C:\Users\jpaige\Desktop\local_repositories\KNF_site_form_raw_data\README.md
+#
+# Input is the August 2026 fresh do_ocr:true reprocess (5,254 docs) — a strict
+# superset of the May 2026 corpus, with headings.json, no truncated trailing
+# pages, and recovered map/figure text.
+#
+# This supersedes the June 2026 chunk 1 + chunk 3 runs (3,845 docs, commit
+# 1717c5e), which covered only 73% of this corpus — Rapides Parish (~894 docs)
+# was never segmented at all. Those runs stay on disk as a comparison baseline;
+# the site_form_pass* prompts are byte-identical between 1717c5e and HEAD, so
+# old and new segments are directly comparable.
+#
+# Expected wall clock: ~26-27 h (June chunk 3: 2,386 docs in 12.1 h, ~18 s/doc).
+#
+# Usage:
+#   uv run python segmenter.py --config config_knf_pilot_full.yaml
+#   uv run python segmenter.py --config config_knf_pilot_full.yaml --trinomial 16CL100
+# ---------------------------------------------------------------------------
+
+input_dir:         'C:\Users\jpaige\Desktop\local_repositories\KNF_site_form_raw_data\2024_forms_ocr_docling'
+output_dir:        'C:\Users\jpaige\Desktop\local_repositories\KNF_site_form_raw_data\segments'
+trinomial_pattern: '(\d{2}[A-Z]{2}\d+)'
+
+mode: 'text'
+
+page_truncation_chars: 3000
+pdf_thumb_width:       240
+
+base_url:        'http://localhost:11434'
+vision_model:    'llama3.2-vision:11b'   # unused in text mode
+text_model:      'qwen2.5:14b'           # same model as the June baseline
+temperature:     0.2
+timeout_seconds: 1800

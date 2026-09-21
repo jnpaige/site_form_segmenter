@@ -3,16 +3,30 @@ article reporting on a lithic (stone tool) assemblage from one or more
 excavated sites.
 
 ABOUT THE INPUT:
-The heading list below was automatically extracted from the article's text,
-produced by a Docling OCR/layout pipeline that marks recognized headings
-with "##". The list records each heading and the page it appears on
-(0-indexed from the start of the PDF). Numbering and depth vary by journal
-and author; treat the list as a flat sequence of labeled page markers —
-you do not need to reason about nesting.
+Below is a PAGE INVENTORY of the article — one entry for EVERY page, in
+order, 0-indexed from the start of the PDF. It was produced by a Docling
+OCR/layout pipeline that marks recognized headings with "##".
 
-Each heading entry may include a short text excerpt after a ` | ` separator
-— the first non-heading text following that heading on its page. Use it to
-tell a real section start from a spurious OCR match.
+Each page entry may carry:
+  - any headings that appear on that page, each optionally followed after a
+    ` | ` separator by the opening of the body text beneath it (use this to
+    tell a real section start from a spurious OCR match, and to judge what a
+    section is about when its title is ambiguous);
+  - a bracketed note of what else is on the page — `[N table rows]`,
+    `[figure/table caption]`;
+  - a `caption:` line, and for pages with no heading a `text:` line giving
+    the opening of that page's prose.
+
+MANY PAGES HAVE NO HEADING AT ALL. Full-page plates of artefact
+photographs, stratigraphic sections, and large data tables typically carry
+only a caption. These pages are listed with their caption or opening text
+and NO heading, and they are usually the substantive core of the Results —
+never skip a page merely because it has no heading. A page of artefact
+photographs belongs with the Results section it illustrates; a data table
+of artefact counts belongs with the section that discusses it.
+
+Headings and depth vary by journal and author; treat headings as labelled
+page markers — you do not need to reason about nesting.
 
 ABOUT THE CORPUS:
 These are standard IMRaD-structured journal articles (Introduction,
@@ -56,13 +70,29 @@ headings vary. The underlying sections are consistent:
 - CONCLUSIONS: Final summary/conclusions section.
 
 - BOILERPLATE_END: Declaration of competing interest, Acknowledgments,
-  Supplementary Online Material, References, Appendices unless an appendix
-  contains its own substantive data tables (if so, note it separately
-  rather than lumping it into boilerplate_end).
+  References, Supplementary Online Material.
+
+  A PAGE CARRYING TABLE ROWS IS NEVER BOILERPLATE_END. If the inventory
+  marks a page `[N table rows]`, that page holds data — artefact counts,
+  attribute measurements, raw material breakdowns — and it belongs to
+  RESULTS, whatever it is titled and wherever it sits in the document.
+  This applies specifically to:
+    - "Extended Data Table" / "Supplementary Table" pages in Nature-format
+      articles, which carry the paper's actual assemblage data even though
+      they are printed after the references;
+    - data tables placed after the bibliography, which is normal in
+      preprints and author manuscripts.
+  Assigning such a page to boilerplate_end discards the paper's primary
+  quantitative evidence. A reference list, an acknowledgements paragraph or
+  a competing-interests statement has no table rows, so this rule costs
+  nothing on genuine back matter.
 
 YOUR TASK:
-Review the heading list and assign every page to exactly one of the
-categories above. A section ends where the next logically distinct section
+Assign EVERY page listed in the inventory to exactly one of the categories
+above. Every page number that appears in the inventory must appear exactly
+once in your answer — a page you leave out is discarded from all downstream
+analysis, so a page you are unsure about should go to your best guess rather
+than be omitted. A section ends where the next logically distinct section
 begins. Sub-headings within a section (e.g. "3.1 Local stone sources"
 inside Results) do not start a new top-level category — fold them into
 whichever category their parent section belongs to.
@@ -83,5 +113,5 @@ it:
   "boilerplate_end": [{"label": "Competing interest, Acknowledgments, References", "pages": [22, 23, 24]}]
 }
 
-HEADING LIST:
+PAGE INVENTORY:
 {HEADINGS}

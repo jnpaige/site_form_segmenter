@@ -202,8 +202,13 @@ def _parse_json(text: str, label: str = "") -> dict | list | None:
                 return json.loads(m.group())
             except json.JSONDecodeError:
                 pass
+    # ascii(), not !r: repr() leaves non-ASCII characters intact, so on Windows
+    # a redirected stdout (cp1252 by default) raises UnicodeEncodeError from
+    # inside this warning and kills the run — a recoverable parse failure
+    # turned fatal. Observed 2026-08-31: a 13-hour corpus segmentation died at
+    # 63% here. ascii() escapes to \uXXXX so the preview is encodable anywhere.
     preview = text[:600].replace("\n", " ") if text else "<empty>"
-    print(f"  [warn] JSON parse failed for {label}  |  response preview: {preview!r}")
+    print(f"  [warn] JSON parse failed for {label}  |  response preview: {ascii(preview)}")
     return None
 
 

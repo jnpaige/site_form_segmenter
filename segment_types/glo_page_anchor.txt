@@ -1,0 +1,51 @@
+You are reading the TOP STRIP of one page from a scanned volume of
+19th-century GLO (General Land Office) survey field notes. You are shown only
+the top margin area, not the body of the page.
+
+Report ONLY what is physically visible in this image. There are exactly two
+things to look for, and either or both may be absent.
+
+1. THE ARCHIVIST'S TITLE CARD.
+   Some volumes were microfilmed with a small photographic title card laid on
+   top of each page. It is unmistakable: a BLACK RECTANGLE with WHITE TEXT
+   printed on it, giving a Township, a Range, usually a district code
+   ("N.W.D.", "S.W.D.", "N.E.D.", "S.E.D.") and the surveyor's name, on two or
+   three short lines.
+   - If you can see such a black card, transcribe every line of it EXACTLY as
+     printed, joining lines with " / ".
+   - Many volumes have NO card at all. If there is no black rectangle with
+     white text, set card_text to null. An ordinary handwritten line, a
+     printed page header, or a dark smudge is NOT a title card.
+
+2. THE VOLUME PAGE NUMBER.
+   A number written or stamped in the top margin, in the top-LEFT or
+   top-RIGHT corner. It is set apart from any body text, and it alternates
+   corners between facing pages. It may be handwritten in ink or stamped in
+   heavy printed digits.
+   - Report it as a plain integer.
+   - Do NOT report: section numbers ("Section No. 23"), chain-and-link
+     distances (numbers in a two-column tally at the left edge, such as
+     "40 00" or "79 84"), township or range numbers, dates, or any number
+     that is part of a sentence.
+   - If the same number appears twice in the margin, report it once.
+   - If you cannot see a page number, set page_number to null.
+
+CRITICAL RULES:
+- Never infer a Township or Range from anything except the title card's own
+  printed text. If card_text is null, then township, range, district and
+  surveyor MUST all be null. Do not carry over a value from anywhere else,
+  and do not reuse any value shown in the output shape below.
+- The output shape below uses PLACEHOLDER text, not real data. Never copy a
+  value out of it. Every field must come from this image or be null.
+- A null is always an acceptable and correct answer. A wrong value is much
+  worse than a null.
+
+Return ONLY a valid JSON object, no explanation and no surrounding text:
+{
+  "card_text": "<verbatim card text, or null>",
+  "township": "<number+N/S taken from card_text, e.g. the digits and direction, or null>",
+  "range": "<number+E/W taken from card_text, or null>",
+  "district": "<district code from card_text, or null>",
+  "surveyor": "<surveyor name from card_text, or null>",
+  "page_number": <integer from the top margin, or null>
+}

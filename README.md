@@ -254,6 +254,60 @@ Once section page maps and a trinomial list are in hand, pass 2 identifies which
 
 ---
 
+## Assemblage segmentation for published journal articles
+
+`pilot_cluster_tagging.py` handles a document type the passes above don't fit: a published lithic journal article, typically 9–32 pages, reporting on one or more excavated assemblages. The corpus this was built for is a set of Stone Age lithic technology papers — African MSA and Oldowan, Levantine, European Palaeolithic, Arctic and Fennoscandian — spanning single-site reports and multi-site syntheses.
+
+The difference from report segmentation is where the unit of interest sits. A Phase II report discusses many sites, but each site's material is confined to its own pages, so page-level segmentation separates them. A journal article discusses its assemblages *interleaved* — the same paragraph compares two layers, and one summary table has a column per assemblage — so the unit sits **below the page** and pages cannot be partitioned between assemblages. Blocks are therefore tagged **multi-label**: a comparative sentence or table row carries every assemblage it discusses, and is never forced into one.
+
+Input is the `.md` from pdf_ocr, split into addressable blocks by `lib/block_parser.py` — paragraphs, headings, and *individual table rows*. Table rows are split separately because comparison tables are where cross-assemblage evidence lives; a row like `Cores | 12 | 8 | 3` needs its own tag set rather than the whole table's. This is also why `.md` is the input rather than `text_docling.txt`, whose flattened text loses table structure.
+
+Three LLM passes run in sequence, all against a local model via Ollama (`qwen2.5:32b` by default for all three).
+
+### pass 0 — section map
+
+Classifies every page of the article into one of nine IMRaD-style categories (`front_matter`, `abstract`, `background`, `site_context`, `methods`, `results`, `discussion`, `conclusions`, `boilerplate_end`), and keeps only the five substantive ones for tagging. This narrows the document before the expensive per-block work, and keeps each later call short.
+
+Its input is a **page inventory** built from the `.md`: one entry per page, carrying that page's headings (each with a snippet of the body text that follows it), a marker for what else is on the page (`[N table rows]`, `[figure/table caption]`), and for pages with no heading, the opening of their caption and prose. Listing every page is what lets the model assign every page; describing what is on a page is what lets it distinguish a full-page plate of artefact photographs from a reference list.
+
+Two properties are load-bearing for this corpus. Data tables are assigned to `results` wherever they are printed — Nature-format "Extended Data Table" pages and author manuscripts routinely place the paper's assemblage counts after the bibliography. And where a document's structure was not recovered by Docling's layout model at all, `lib/heading_recovery.py` asks the model to find the headings in the raw page text, verifies each one verbatim against the page it was claimed for, and injects them as heading blocks so pass 0 can run normally.
+
+### stage 1 — assemblage identification
+
+Identifies the distinct assemblages the paper reports, using variables aligned to the [ROCEEH Out of Africa Database (ROAD)](https://www.roceeh.uni-tuebingen.de/roadweb/), the standard research database for this literature:
+
+| field | meaning |
+|---|---|
+| `locality` | the specific excavated site |
+| `archaeological_layer` | stratigraphic unit defined by cultural content, or null |
+| `geological_layer` | unit defined by sediment or deposit, or null |
+| `archaeological_stratigraphy` | industry/culture the assemblage is assigned to |
+| `n_artefacts` | assemblage size where the paper states it |
+| `also_known_as` | spelling variants merged into this assemblage |
+| `evidence` | which channels named it |
+
+One assemblage per (locality, layer) the paper reports data for; a paper reporting one undivided collection yields one assemblage with the layer left null.
+
+An industry, culture or technocomplex is recorded as a **field on each assemblage**, not as an assemblage of its own — it classifies assemblages rather than containing them, so a paper framed around one industry across five sites yields five assemblages sharing that value, and the industry-level view is a grouping on that field.
+
+Evidence is gathered from up to six labelled channels — title and abstract, section headings, site/stratigraphy prose, whole tables (header plus rows), and figure captions — each optional, because which one enumerates the assemblages varies by paper. Assemblages arriving under different spellings (numeral style, case, abbreviation, OCR damage) are reconciled into one before the list is emitted.
+
+### stage 2 — block tagging
+
+Tags every block from the retained pages with the assemblage(s) it discusses, against the fixed list stage 1 produced. Blocks that apply to every assemblage equally — general methodology, dating technique, how retouch was scored — are marked `general` rather than assigned to one. Blocks discussing none of the listed assemblages are left with an empty list rather than forced into a tag.
+
+Work is chunked by contiguous page ranges, with the chunk count raised automatically from the block count and a `num_ctx`-derived character budget so the request and its reply both fit the model's context window.
+
+### Output and visual QA
+
+A single `<stem>.cluster_tags.json` per document, carrying the pass-0 section map, the assemblage list, every block with its id/page/type/text, and the per-block tags. `pdf_ocr/annotate_layers.py` renders that output back onto the searchable PDF as toggleable layers — one per assemblage, plus section, block-type and figure-class layers — for visual review.
+
+```bash
+uv run python pilot_cluster_tagging.py --md-path "path/to/<paper>.md"
+```
+
+---
+
 ## Figure classification
 
 `classify_figures.py` flags each figure extracted by [pdf_ocr](https://github.com/jnpaige/pdf_ocr) (`docling.extract_figures: true`) into one or more visual classes using a small local vision model — a separate pipeline stage from page/investigation segmentation above, run over pdf_ocr's `figures/figures.json` output rather than page text. Figures aren't scoped to a trinomial/investigation the way pages are, so it walks pdf_ocr's output directory directly rather than using `grouper.py`'s trinomial grouping.
@@ -316,6 +370,55 @@ Both segmenters write the identical shape, so `site_vocab_extractor` and `locate
 
 `confidence_counts` keys differ by method (`direct`/`interpolated`/`interpolated-boundary`/`edge-extrapolated` for regex, `multi_window_agreement`/`single_window`/`multi_window_disagreement`/`unassigned` for LLM) — both describe *how* each page's assignment was arrived at, but any code reading only `label`/`township`/`range`/`pages`/`sections` (as `site_vocab_extractor` and `locate_and_annotate.py` do) is unaffected either way.
 
+### A third strategy: read the page, not the OCR (`segment_glo_page_anchors.py`)
+
+Both segmenters above read OCR'd **body text** — 1807 manuscript handwriting — which, measured across the 43-volume Evangeline corpus on 2026-09-14, is the weakest evidence the document offers:
+
+- **80% of pages (8,654/10,817)** come back from Docling with no layout structure at all, as raw Surya text.
+- **`headings.json` exists for 2 of 43 volumes**, six junk headings each, so the report pass-1 heading mechanism has nothing to work from here. This is not fixable by re-running `extract_headings.py` — that was already backfilled over this corpus in August 2026.
+
+Meanwhile each page physically carries up to three *better* signals, in modern or printed lettering rather than manuscript script, and the text pipeline discards two of them:
+
+| anchor | what it is | recovered by current OCR |
+|---|---|---|
+| **Index page** | a ruled archival finding aid in the front matter — `Surveyors \| Township \| Range \| Pages`, one page **span** per Township/Range. Present in 35/43 volumes. | Docling shreds its columns into one vertical stream; only 18/43 volumes yield even five parseable spans, and `507_00056` yields **zero** despite having a full index page |
+| **Title card** | an archivist's photographic strip laid on nearly every page of the volumes that have one — `T. 2N  R. 4W  N.W.D. / R.B. Paine` | **~9% of pages.** It is white-on-black and Surya is tuned for dark-on-light |
+| **Margin page number** | the volume's own page number, top-left/top-right, alternating between facing pages | **not at all** — a consequence of the 80% layout fallback |
+
+`segment_glo_page_anchors.py` reads all three from page imagery with a vision model and writes a per-page **evidence map**, keyed by 0-indexed PDF page so it lines up with the `=== Page N ===` markers in `.md`/`.txt`/`_ocr.pdf`.
+
+**It deliberately does not write `segments.json`.** Producing the evidence and drawing the conclusion are kept as separate steps, because conflating them is exactly what made the regex segmenter's output untrustworthy — its "zero unmapped pages" really meant "the fill algorithm always produces *an* answer, even a wrong one."
+
+**Manuscript page numbers are usually not PDF page indices.** Two families, recorded per volume as `index_family`:
+- *`one_to_one`* (e.g. `507_00102`: index max 316, PDF 317 pages) — archivally re-paginated; the index maps almost straight onto PDF page order.
+- *`series_numbered`* (e.g. `507_00615`: index max 570, PDF 189 pages) — the index covers a whole manuscript series while this PDF holds only a subset. The offset is **piecewise, not constant**: manuscript page 33 is PDF page 5 (offset 28) while manuscript page 168 is PDF page 60 (offset 108). Never interpolate it; the margin page number is read per page precisely so it doesn't have to be.
+
+**The index gets a second, model-free read where the OCR is new enough.** pdf_ocr's 2026-09 `tables` field records a detected table's grid plus every cell's text and `start_row`/`start_col`. On the GLO index page that grid comes back **with its row alignment intact**, which the flattened `md_text` does not — the reflowed text groups the page by column (every township, then every range, then every page number), losing which township goes with which page. `read_index_from_tables()` parses that grid and `_compare_index_reads()` cross-checks it against the vision read, reporting `n_agree`/`n_disagree`/`mismatches` and never auto-resolving. Set `ocr_dir` in config to enable it; it returns `None` (and the cross-check is silently skipped) on pre-2026-09 corpora.
+
+It is not a replacement for the vision read — cells that OCR dropped are simply absent here, where a vision model still reads them off the page: **16/30 rows on `507_00056`, 31/41 on `507_00121`** recover both township and range. Column splits also vary between volumes (`507_00056` gives the range's direction letter its own column; `507_00121` merges it into the Pages cell as `W 1 - 18` or `37-63 W`), which is why the reader recovers a stranded direction letter from the Pages cell but takes only a lone `E`/`W` from it and never a digit — joining that cell into the row text wholesale turns `37-63 W` into range `63W`.
+
+**Structure is re-derived from verbatim transcription, never taken from the model's own fields.** Both prompts ask for a verbatim string alongside the parsed fields, and the code parses the verbatim itself. This is not belt-and-braces — two distinct failures were observed in testing and are fixed by it:
+- Given a prompt whose JSON example held realistic values (`"township": "1N"`, `"surveyor": "R.B. Paine"`), the model correctly reported `card_text: null` on pages with no card and then **filled those fields in anyway, copied out of the example**. Both prompts now use obviously-fake placeholders.
+- On an index row it transcribed correctly as `raw='1 N 2 E 9 - 27'`, its own structured fields came back with the columns **shifted by one**. `raw` was right every time the fields were wrong.
+
+**The margin number gets its own guard, because it is the linchpin.** It is what turns an index page span into a PDF page range, so a single misread silently relocates a page to the wrong township. `flag_margin_outliers()` works on the *offset* (margin number − PDF page), which is what separates the two families: `one_to_one` holds a near-constant offset, `series_numbered` a piecewise-constant one. A genuine jump is shared by a run of pages; a misread is an isolated spike whose neighbours agree across it — only the isolated case is flagged, endpoints included. Nothing is renumbered or dropped; the flag rides along on the page entry and on any conflict it explains. On `507_00102` this caught PDF page 7 reading as margin `140`, which the index had resolved into its `127–188` row against that page's own card. **On the 23 cardless volumes this guard is the only check available.**
+
+`agreement` per page is the point of the file: `corroborated` (card and index, reached via the margin page number, independently name the same Township/Range), `card_only`, `index_only`, `conflict`, `none`. Conflicts are listed separately and are genuinely informative — on `507_00615` they caught the index's handwritten `N` being transcribed as `S` on a row the printed card contradicts. **The card is the more reliable of the two where both exist** (printed vs. handwritten), but the conflict is surfaced rather than auto-resolved.
+
+`--survey` samples a few pages per volume and reports only whether a title card is present, so you can find out which volumes this anchor is even available for before committing to a full run. It grades on card-*shaped* text (a township **and** a range, in the card's printed order) rather than on any transcription at all — the looser rule counted volumes carrying only a handwritten page header ("Western Land District of the Territory of Orleans") as card-bearing.
+
+**Survey result, all 43 Evangeline volumes, 6 sampled pages each (2026-09-14, `qwen2.5vl:7b`, seed 20260914):**
+
+| | volumes |
+|---|---|
+| `solid` — card-shaped text on 3+ sampled pages | **15** |
+| `weak` — on 1–2 pages | 5 |
+| `none` — no card; the REWRITE books and the colour loose-sheet scans | 23 |
+
+**Margin page number: 245/258 sampled pages (95%), present in every volume family including all 23 with no card.** That is the finding that decides the design: the margin number is the universal anchor and the card is a corroborator where it happens to exist. A card-only approach would cover barely a third of the corpus.
+
+Note this supersedes an earlier estimate made by regex over OCR'd text, which put card presence at ~9% of pages corpus-wide. That measure was wrong in both directions — it missed cards on volumes that have them (the card is white-on-black and Surya rarely reads it) while matching handwritten headers on volumes that don't (it scored `507_00709`, which has no card at all, at 42%).
+
 ### Usage
 
 ```powershell
@@ -326,6 +429,13 @@ uv run python segment_glo_township_range.py --config config_glo_township_range.y
 # LLM — slower (a 32b-model call per ~25-page window), re-run per volume where regex looks weak
 uv run python segment_glo_township_range_llm.py --config config_glo_township_range_llm.yaml
 uv run python segment_glo_township_range_llm.py --config config_glo_township_range_llm.yaml --report "507_00056__..."
+
+# Vision page anchors — index table + title card + margin page number, per page
+uv run python segment_glo_page_anchors.py --config config_glo_page_anchors.yaml
+uv run python segment_glo_page_anchors.py --config config_glo_page_anchors.yaml --report "507_00615__..."
+
+# Which volumes even have a title card? Samples 6 pages per volume.
+uv run python segment_glo_page_anchors.py --config config_glo_page_anchors.yaml --survey
 ```
 
 ```yaml
@@ -348,6 +458,12 @@ All prompts live in `segment_types/`. Each pass has its own file so prompts can 
 - `report_pass1_sections.txt` — full-text section classifier; fallback for sparse-heading documents
 - `report_pass2_trinomial_pages.txt` — per-trinomial page narrowing within identified sections
 - `glo_township_range_pages.txt` — per-page Township/Range/Section classifier for overlapping page windows; used by `segment_glo_township_range_llm.py`
+- `glo_page_anchor.txt` — reads an archivist title card and the volume page number off a page's cropped top strip; used by `segment_glo_page_anchors.py`
+- `glo_index_table.txt` — transcribes a volume's front-matter index table (Township/Range → page span) from its image; used by `segment_glo_page_anchors.py`
+- `report_pass0_lithic_journal_sections.txt` — page-inventory section classifier for published journal articles (pass 0 above)
+- `report_pass1_clusters.txt` — ROAD-aligned assemblage identification (stage 1 above)
+- `report_pass2_block_tags.txt` — multi-label per-block assemblage tagging (stage 2 above)
+- `recover_headings.txt` — recovers section headings from raw page text where the layout model found none
 
 ---
 

@@ -132,3 +132,61 @@ def render_pages_to_contact_sheet(
     jpeg = pix.tobytes("jpeg")
     out_doc.close()
     return base64.b64encode(jpeg).decode("utf-8")
+
+
+def render_page_strips(
+    pdf_path: Path,
+    pages: list[int] | None = None,
+    frac: float = 0.18,
+    max_width: int = 1400,
+) -> dict[int, str]:
+    """Render the TOP STRIP of each page to a base64-encoded JPEG string.
+
+    Returns {page_num: base64_string}, 0-indexed to match the
+    === Page N === convention, same as render_pages_to_images.
+
+    GLO field-note volumes carry their two most reliable Township/Range
+    signals in the top margin — an archivist's photographic title card
+    (white text on black, which Surya recovers on only ~9% of pages because
+    it is reverse-video) and a hand-written or stamped volume page number.
+    Cropping to the top `frac` of the page keeps both while dropping the
+    body text, so a small vision model gets a legible, high-resolution strip
+    instead of a downscaled whole page.
+
+    Render from the ORIGINAL source PDF, not pdf_ocr's <stem>_ocr.pdf: the
+    latter has the "=== Page N ===" marker stamped top-right, which lands
+    inside this crop and is easily misread as the volume page number. Page
+    order is identical between the two.
+
+    pages: which 0-indexed pages to render; None means every page.
+    """
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        try:
+            import fitz
+        except ImportError:
+            raise ImportError(
+                "PyMuPDF is required for vision mode.\n"
+                "It is already declared in pyproject.toml — just run:\n"
+                "  uv sync\n"
+                "or manually: pip install PyMuPDF"
+            )
+
+    doc = fitz.open(str(pdf_path))
+    if pages is None:
+        pages = list(range(len(doc)))
+
+    strips: dict[int, str] = {}
+    for page_num in pages:
+        if page_num < 0 or page_num >= len(doc):
+            continue
+        page = doc.load_page(page_num)
+        rect = page.rect
+        clip = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y0 + rect.height * frac)
+        scale = max_width / rect.width if rect.width else 1.0
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip)
+        strips[page_num] = base64.b64encode(pix.tobytes("jpeg")).decode("utf-8")
+
+    doc.close()
+    return strips

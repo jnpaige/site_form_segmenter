@@ -1,0 +1,40 @@
+# config_figures.yaml — classify_figures.py
+#
+# Reads pdf_ocr's figures/figures.json + PNGs (docling.extract_figures: true)
+# and flags each figure into one or more classes with a small local VLM.
+#
+# output_dir points INTO the pdf_ocr corpus output directory itself, as a
+# numbered sibling of the per-PDF folders (000_segments, 001_codes, ...),
+# rather than this repo's own local runs/ — experimental convention so that
+# opening a pdf_ocr output directory shows at a glance whether it's been
+# segmented/coded, without needing to know which downstream tool to check.
+# Still uses the standard runs/<ts>_<sha>/ layout underneath.
+
+input_dir:  'C:\Users\jpaige\Box\4. Research\LLM_segmenting_procedural_units\pdfs_ocr_figures_holdout'
+output_dir: 'C:\Users\jpaige\Box\4. Research\LLM_segmenting_procedural_units\pdfs_ocr_figures_holdout\000_segments\runs'
+
+base_url:        'http://localhost:11434'
+vision_model:    'qwen2.5vl:7b'
+temperature:     0.1
+timeout_seconds: 600
+num_ctx:         8192
+
+figure_classes:
+  - key: stratigraphy
+    label: "Stratigraphic/sedimentological diagram"
+    description: "Section drawings, stratigraphic columns, soil/sediment profiles"
+  - key: map
+    label: "Map"
+    description: "Site location maps, topographic maps, plan-view site maps"
+  - key: site_photo
+    label: "Site or excavation photograph"
+    description: "Photos of the site, excavation units, or features in situ"
+  - key: data_graph
+    label: "Data graph/plot"
+    description: "Charts, scatterplots, histograms plotting quantitative site data"
+  - key: artifact_image
+    label: "Artifact image or illustration"
+    description: "Any non-lithic artifact photo or drawing"
+  - key: lithic_tool
+    label: "Lithic tool image or illustration"
+    description: "Stone tool photos or technical drawings (cores, flakes, bifaces, retouched pieces, etc.)"

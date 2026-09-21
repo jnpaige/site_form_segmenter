@@ -119,8 +119,12 @@ def _figure_context(entry: dict) -> str:
         lines.append(f"Text before figure: {entry['text_before']}")
     if entry.get("text_after"):
         lines.append(f"Text after figure: {entry['text_after']}")
-    if entry.get("classification"):
-        lines.append(f"Docling's own layout classifier guessed: {entry['classification']}")
+    # Docling's own guess is deliberately NOT passed to the model. On lithic
+    # papers its taxonomy files artefact plates under `icon` and `logo` —
+    # Araho's "Nearly complete example of a Type 1 stemmed tool" comes back as
+    # `icon`, Broich's "Selected artifacts from the Late Early Neolithic" as
+    # `logo` — so including it anchors the vision model toward a wrong label on
+    # precisely the class this stage exists to find.
     return "\n".join(lines)
 
 

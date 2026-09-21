@@ -1,0 +1,55 @@
+You are reading a page from the front matter of a scanned volume of
+19th-century GLO (General Land Office) survey field notes.
+
+You are looking for ONE specific thing: the volume's INDEX TABLE. This is a
+ruled table, written in a clear modern hand (NOT the ornate 19th-century
+script used in the body of the volume), with column headings along the lines
+of "Surveyors", "Township", "Range", "Pages". Each row gives one
+Township/Range and the span of volume page numbers where its field notes are
+found — for example a row reading "1 N | 3 E | 29 - 39".
+
+FIRST decide whether this page is that index table.
+- If this page is NOT an index table — if it is a cover, a blank leaf, a
+  title page, or ordinary field-note text in 19th-century script — set
+  "is_index": false and return an empty rows array. Do not force an answer.
+- Only set "is_index": true if you can actually see a ruled, multi-row table
+  of Township / Range / page spans.
+
+If it IS the index table, transcribe EVERY row, top to bottom, in the order
+they appear.
+
+For each row report:
+- surveyor      the name in the Surveyors column, or null if that column is
+                blank (it very often is).
+- township      the township number as a plain string, e.g. "1", "12".
+- township_dir  exactly "N" or "S", or null.
+- range         the range number as a plain string.
+- range_dir     exactly "E" or "W", or null.
+- page_start    the first number of the page span, as an integer.
+- page_end      the last number of the page span, as an integer. If the row
+                gives only a single page, set page_end equal to page_start.
+- raw           the whole row transcribed verbatim as you read it, including
+                any stray marks or a second page span written in the margin.
+
+RULES:
+- These page numbers are the VOLUME's own page numbers as written on its
+  pages. They are NOT positions in the scanned file. Report exactly the
+  numbers written in the Pages column and nothing else — do not renumber,
+  do not offset, do not "correct" a span that looks out of sequence.
+- Rows are frequently NOT in ascending page order. That is normal and
+  expected. Transcribe them in the order printed; never reorder or drop a
+  row because its numbers look out of place.
+- If a row is partly illegible, transcribe what you can into "raw" and set
+  any field you cannot read to null, rather than guessing.
+- The output shape below uses PLACEHOLDER text. Never copy a value out of it.
+
+Return ONLY a valid JSON object, no explanation and no surrounding text:
+{
+  "is_index": true,
+  "column_headings": "<verbatim heading row, or null>",
+  "rows": [
+    {"surveyor": "<name or null>", "township": "<digits>", "township_dir": "<N or S>",
+     "range": "<digits>", "range_dir": "<E or W>",
+     "page_start": 0, "page_end": 0, "raw": "<verbatim row>"}
+  ]
+}

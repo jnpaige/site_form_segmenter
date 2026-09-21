@@ -125,12 +125,82 @@ def _slug(s: str) -> str:
     return s.replace(":", "_").replace("/", "_").replace(".", "_")
 
 
+def _apply_trinomial_file(groups: dict, list_path: Path, input_dir: Path) -> dict:
+    """Filter `groups` to the trinomials named in `list_path`.
+
+    One per line; blank lines and `#` comments ignored; case and surrounding
+    whitespace normalised; duplicates collapsed. Same format site_coder's
+    batch_coder.py accepts, so one list drives both tools.
+
+    Names must be the trinomial KEY, not the folder name — a combined-form
+    directory `16CL102_16CL191/` keys as `16CL102`, since group_by_trinomial
+    takes the first regex match.
+
+    A listed trinomial absent from input_dir is a hard error: silently
+    segmenting fewer sites than asked for is the failure this flag prevents.
+    """
+    if not list_path.exists():
+        sys.exit(f"[error] trinomial file not found: {list_path}")
+
+    wanted, seen = [], set()
+    for raw in list_path.read_text(encoding="utf-8").splitlines():
+        name = raw.split("#", 1)[0].strip().upper()
+        if name and name not in seen:
+            seen.add(name)
+            wanted.append(name)
+
+    if not wanted:
+        sys.exit(f"[error] no trinomials listed in {list_path}")
+
+    absent = [t for t in wanted if t not in groups]
+    if absent:
+        shown = ", ".join(absent[:15])
+        more = f" (+{len(absent) - 15} more)" if len(absent) > 15 else ""
+        sys.exit(f"[error] {len(absent)} of {len(wanted)} trinomial(s) from {list_path.name} "
+                 f"are not in\n        {input_dir}\n        {shown}{more}\n"
+                 f"        (list the trinomial key, e.g. 16CL102 — not the folder name "
+                 f"16CL102_16CL191)")
+
+    print(f"Shard   : {list_path.name} — {len(wanted)} of {len(groups)} corpus sites")
+    return {t: groups[t] for t in wanted}
+
+
+def _make_output_encodable() -> None:
+    """Stop a diagnostic print from being able to kill a multi-hour run.
+
+    On Windows, a redirected stdout (`> run.log`) defaults to cp1252, so any
+    print carrying non-cp1252 characters — OCR text, a model's response
+    preview — raises UnicodeEncodeError from inside the print itself. That
+    ended a 13-hour corpus segmentation at 63% on 2026-08-31. Console output
+    is unaffected; only redirection triggers it, which is exactly how long
+    runs are launched.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass  # already-wrapped or non-reconfigurable stream: leave it
+
+
 def main():
+    _make_output_encodable()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config",    default="config.yaml")
     parser.add_argument("--mode",      choices=["text", "vision"], default=None)
     parser.add_argument("--trinomial", default=None)
+    parser.add_argument("--trinomial-file", default=None,
+                        help="restrict the run to the trinomials listed in this file, one per "
+                             "line (# comments and blanks ignored). Use to resume an interrupted "
+                             "run, or to shard a corpus across machines. Same flag and format as "
+                             "site_coder's batch_coder.py.")
+    parser.add_argument("--skip-existing", metavar="DIR",
+                        help="skip trinomials that already have a *.segments.json in DIR. Point "
+                             "at a previous run directory to resume it into a fresh one; the two "
+                             "directories then merge cleanly, since filenames are per-trinomial.")
     args = parser.parse_args()
+
+    if args.trinomial and args.trinomial_file:
+        sys.exit("[error] --trinomial and --trinomial-file are mutually exclusive.")
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
 
@@ -165,6 +235,21 @@ def main():
             print(f"[error] {t} not found in {input_dir}")
             return
         groups = {t: groups[t]}
+    elif args.trinomial_file:
+        groups = _apply_trinomial_file(groups, Path(args.trinomial_file), input_dir)
+
+    if args.skip_existing:
+        done_dir = Path(args.skip_existing)
+        if not done_dir.exists():
+            sys.exit(f"[error] --skip-existing directory not found: {done_dir}")
+        done = {p.name[: -len(".segments.json")].split("__")[-1]
+                for p in done_dir.glob("*.segments.json")}
+        before = len(groups)
+        groups = {t: g for t, g in groups.items() if t not in done}
+        print(f"Resume  : {len(done)} already in {done_dir.name}; "
+              f"{before - len(groups)} skipped, {len(groups)} to do")
+        if not groups:
+            sys.exit("[done] nothing left to segment — every trinomial already has output.")
 
     trinomials = sorted(groups.keys())
     print(f"Run dir : {run_dir}")
