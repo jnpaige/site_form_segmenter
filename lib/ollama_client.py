@@ -60,6 +60,7 @@ def call_ollama(
     timeout: float = 1800,
     label: str = "",
     num_ctx: int | None = None,
+    think: bool | None = None,
 ) -> str | None:
     """Call Ollama chat endpoint; return raw text response or None on error."""
     options = {"temperature": temperature}
@@ -74,6 +75,7 @@ def call_ollama(
         "stream": False,
         "options": options,
     }
+    _set_think(payload, think)
     return _post(payload, base_url, timeout, label)
 
 
@@ -87,6 +89,7 @@ def call_ollama_vision(
     timeout: float = 1800,
     label: str = "",
     num_ctx: int | None = None,
+    think: bool | None = None,
 ) -> str | None:
     """Call Ollama chat endpoint with embedded images; return raw text or None.
 
@@ -105,7 +108,21 @@ def call_ollama_vision(
         "stream": False,
         "options": options,
     }
+    _set_think(payload, think)
     return _post(payload, base_url, timeout, label)
+
+
+def _set_think(payload: dict, think: bool | None) -> None:
+    """Add Ollama's `think` flag only when the caller chose one.
+
+    Thinking-capable models (qwen3.x) think when the flag is absent (Ollama
+    0.34). The reasoning comes back separately in message.thinking, so parsing
+    is unaffected, but it costs generation time and counts against num_ctx,
+    which the stage-2 chunk planner sizes against. None leaves the key out, so
+    callers that never set it behave exactly as before.
+    """
+    if think is not None:
+        payload["think"] = think
 
 
 def _post(payload: dict, base_url: str, timeout: float, label: str) -> str | None:
@@ -166,9 +183,10 @@ def extract_json(
     timeout: float = 1800,
     label: str = "",
     num_ctx: int | None = None,
+    think: bool | None = None,
 ) -> dict | list | None:
     text = call_ollama(system_prompt, user_content, model, base_url,
-                       temperature, timeout, label, num_ctx)
+                       temperature, timeout, label, num_ctx, think)
     return _parse_json(text, label) if text is not None else None
 
 
@@ -182,9 +200,10 @@ def extract_json_vision(
     timeout: float = 1800,
     label: str = "",
     num_ctx: int | None = None,
+    think: bool | None = None,
 ) -> dict | list | None:
     text = call_ollama_vision(system_prompt, user_content, images, model,
-                              base_url, temperature, timeout, label, num_ctx)
+                              base_url, temperature, timeout, label, num_ctx, think)
     return _parse_json(text, label) if text is not None else None
 
 

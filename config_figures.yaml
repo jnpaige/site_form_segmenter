@@ -14,7 +14,8 @@ input_dir:  'C:\Users\jpaige\Box\4. Research\LLM_segmenting_procedural_units\pdf
 output_dir: 'C:\Users\jpaige\Box\4. Research\LLM_segmenting_procedural_units\pdfs_ocr_figures_pilot\000_segments\runs'
 
 base_url:        'http://localhost:11434'
-vision_model:    'qwen2.5vl:7b'
+vision_model:    'qwen3.8:27b'     # was qwen2.5vl:7b; same model as the text passes (and Clef's backbone)
+think:           false
 temperature:     0.1
 timeout_seconds: 600
 num_ctx:         8192

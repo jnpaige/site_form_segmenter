@@ -232,9 +232,11 @@ def main():
     ap.add_argument("--out", default="coded_assemblages")
     ap.add_argument("--docs", help="comma-separated substrings of document names")
     ap.add_argument("--batches", help="comma-separated batch names to run")
-    ap.add_argument("--model", default="qwen2.5:32b")
+    ap.add_argument("--model", default="qwen3.8:27b")
     ap.add_argument("--base-url", default="http://localhost:11434")
     ap.add_argument("--num-ctx", type=int, default=32768)
+    ap.add_argument("--think", action="store_true",
+                    help="Let thinking-capable models reason first (off by default; see pilot_cluster_tagging.py)")
     args = ap.parse_args()
 
     codes = cb.load(PU_BOOK, MODE_BOOK, GROUPS)
@@ -273,7 +275,8 @@ def main():
                 res = extract_json(
                     system_prompt=SYSTEM, user_content=user, model=args.model,
                     base_url=args.base_url, temperature=0.1, timeout=900,
-                    label=f"code:{label[:18]}:{gname}", num_ctx=args.num_ctx)
+                    label=f"code:{label[:18]}:{gname}", num_ctx=args.num_ctx,
+                    think=args.think)
                 n_calls += 1
                 if not isinstance(res, dict):
                     continue

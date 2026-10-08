@@ -155,6 +155,7 @@ def _classify_one_figure(
         timeout=ollama_cfg["timeout"],
         label=label,
         num_ctx=ollama_cfg.get("num_ctx"),
+        think=ollama_cfg.get("think"),
     )
 
     if not isinstance(result, dict):
@@ -195,6 +196,7 @@ def main():
     temperature    = cfg.get("temperature", 0.1)
     timeout        = cfg.get("timeout_seconds", 600)
     num_ctx        = cfg.get("num_ctx", 8192)
+    think          = cfg.get("think")   # None = leave to Ollama (see lib/ollama_client._set_think)
     figure_classes = cfg["figure_classes"]
 
     seg_types_dir = Path("segment_types")
@@ -239,6 +241,7 @@ def main():
         "temperature":     temperature,
         "timeout":         timeout,
         "num_ctx":         num_ctx,
+        "think":           think,
     }
 
     run_started = datetime.now(timezone.utc)

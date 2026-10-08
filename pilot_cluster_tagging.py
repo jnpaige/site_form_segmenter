@@ -13,6 +13,7 @@ Usage:
     uv run python pilot_cluster_tagging.py --md-path "path/to/report.md"
 """
 import argparse
+import functools
 import re
 from collections import defaultdict
 import math
@@ -31,8 +32,12 @@ from block_parser import (
 PASS0_PROMPT_FILE = Path(__file__).parent / "segment_types" / "report_pass0_lithic_journal_sections.txt"
 PASS1_PROMPT_FILE = Path(__file__).parent / "segment_types" / "report_pass1_clusters.txt"
 PASS2_PROMPT_FILE = Path(__file__).parent / "segment_types" / "report_pass2_block_tags.txt"
-DEFAULT_MODEL = "qwen2.5:32b"
-DEFAULT_PASS0_MODEL = "qwen2.5:32b"  # heading list is tiny — fits its 32K context easily
+# qwen3.8:27b (architecture qwen35, 262K native context) replaced qwen2.5:32b,
+# whose 32K window was the binding constraint on stage 2 chunking. It is also
+# Clef's backbone, so generative and decision-head runs compare same-base.
+# Its outputs before 2026-10-07 in the pilot/holdout folders are qwen2.5:32b.
+DEFAULT_MODEL = "qwen3.8:27b"
+DEFAULT_PASS0_MODEL = "qwen3.8:27b"  # heading list is tiny — fits any context easily
 DEFAULT_BASE_URL = "http://localhost:11434"
 
 # Categories from report_pass0_lithic_journal_sections.txt worth feeding into
@@ -575,7 +580,16 @@ def main():
                     help="Skip reattaching mid-sentence continuation fragments to the prose they continue")
     ap.add_argument("--stage2-chunks", type=int, default=3, help="Minimum number of page-range chunks for stage2 tagging (raised automatically to fit num_ctx)")
     ap.add_argument("--out", default=None, help="Output JSON path (default: alongside the .md file)")
+    ap.add_argument("--think", action="store_true",
+                    help="Let thinking-capable models (qwen3.x) reason before answering. Off by "
+                         "default: Ollama turns thinking on when unasked, and the reasoning tokens "
+                         "count against num_ctx, which stage 2's chunk plan does not budget for")
     args = ap.parse_args()
+
+    # Every pass reaches the model through this one name (heading recovery is
+    # handed it explicitly), so binding the think choice here covers them all.
+    global extract_json
+    extract_json = functools.partial(extract_json, think=args.think)
 
     md_path = Path(args.md_path)
     if not md_path.is_file():
@@ -714,6 +728,7 @@ def main():
         "source_md": str(md_path),
         "model": args.model,
         "pass0_model": args.pass0_model if not args.no_pass0 else None,
+        "think": args.think,
         "pass0_result": pass0_result,
         "n_continuations_stitched": None if args.no_stitch else n_merged,
         "n_headings_recovered": None if args.no_heading_recovery else n_recovered,

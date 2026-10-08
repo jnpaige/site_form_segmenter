@@ -262,7 +262,7 @@ The difference from report segmentation is where the unit of interest sits. A Ph
 
 Input is the `.md` from pdf_ocr, split into addressable blocks by `lib/block_parser.py` — paragraphs, headings, and *individual table rows*. Table rows are split separately because comparison tables are where cross-assemblage evidence lives; a row like `Cores | 12 | 8 | 3` needs its own tag set rather than the whole table's. This is also why `.md` is the input rather than `text_docling.txt`, whose flattened text loses table structure.
 
-Three LLM passes run in sequence, all against a local model via Ollama (`qwen2.5:32b` by default for all three).
+Three LLM passes run in sequence, all against a local model via Ollama (`qwen3.8:27b` by default for all three since 2026-10-07; `cluster_tags.json` files written before then are `qwen2.5:32b`, and record it in their `model` field). qwen3.8 is a thinking model, and Ollama turns thinking on unless told otherwise; the scripts send `think: false` unless run with `--think`, because reasoning tokens count against `num_ctx` and the stage 2 chunk plan does not budget for them.
 
 ### pass 0 — section map
 
@@ -323,6 +323,8 @@ uv run python classify_figures.py --model qwen2.5vl:7b  # override vision_model
 ```
 
 Output follows the same run-metadata standard as the rest of this repo: `runs/<YYYYMMDD_HHMM>_<gitsha>/` containing a config snapshot, `prompts.yaml`, `run_metadata.json`, `inventory.csv`, one `<model_slug>__<pdf_stem>.figure_segments.json` per document, and `figure_classification_map.md`/`figure_classes.csv` for human/machine review (via `lib/figure_reporter.py`, a variant of `lib/reporter.py` shaped for a variable-length multi-label set instead of a handful of fixed page-type columns).
+
+**Clef alternative (preferred for published papers, 2026-10-08).** [`segmenter_clef`](../segmenter_clef) is this repo's decision-model mirror. Its `classify_figures.py` reads the same inputs and writes the same `figure_segments.json` into the same runs folder, with a probability per class added. On 79 hand-labelled figures it matched or beat the VLMs (exact class set 0.90 vs 0.89 for `qwen3.8:27b` and 0.29 for `qwen2.5vl:7b`) at about a third of the time per figure. See its README. The default `vision_model` here is now `qwen3.8:27b`, with `think: false`.
 
 **Model choice.** This is meant to be a cheap, small-model triage pass, not the final trusted classification — validated against `qwen2.5vl:7b` (a 6GB-VRAM-class model): it correctly caught non-figure noise (a journal masthead logo Docling mis-extracted as a "picture" on nearly every page, tagged `other`) and correctly multi-labeled real composite figures, but also showed real errors on nuanced multi-panel figures — e.g. tagging a photo panel as `map` and inferring `artifact_image` from an on-image text label reading "Artefacts in situ" rather than an actual depicted artifact. Treat its output as a routing signal to spot-check, not ground truth — the same caution this repo already gives `qwen2.5:14b` vs `qwen2.5:32b` for page-boundary detection above applies here too.
 
