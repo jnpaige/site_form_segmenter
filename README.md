@@ -254,6 +254,21 @@ Once section page maps and a trinomial list are in hand, pass 2 identifies which
 
 ---
 
+## Layers, assemblages and figures in published papers (`segment_paper_units.py`)
+
+The successor to `pilot_cluster_tagging.py` below. It reads only pdf_ocr's `paper_elements.json` and writes `paper_units/1`: the paper's ROAD-aligned layers, its assemblages and the layers each spans, and a link from every figure, artefact crop and text block to the assemblages and layers it concerns.
+
+1. **Inventory:** one call over headings, captions, table rows and stratigraphy prose lists the layers and assemblages, with evidence ids that must exist.
+2. **Figures:** one call per figure, given its caption and the paragraphs that cite it.
+3. **Pieces:** artefact crops inherit their figure's links.
+4. **Text:** chunked tagging of paragraphs, captions and table rows (skip it with `--no-text`).
+
+```bash
+uv run python segment_paper_units.py --input-dir "<corpus>" [--only <name>] [--no-text]
+```
+
+Output: `<corpus>\000_segments\runs\<run>\<model>__<paper>.paper_units.json`. `segmenter_clef/link_paper_units.py` re-scores the same links with Clef and writes the same file shape, with probabilities. Gold labels, the scorer and the agent improvement loop are in `local_repositories\paper_units_eval`.
+
 ## Assemblage segmentation for published journal articles
 
 `pilot_cluster_tagging.py` handles a document type the passes above don't fit: a published lithic journal article, typically 9–32 pages, reporting on one or more excavated assemblages. The corpus this was built for is a set of Stone Age lithic technology papers — African MSA and Oldowan, Levantine, European Palaeolithic, Arctic and Fennoscandian — spanning single-site reports and multi-site syntheses.

@@ -1,0 +1,11 @@
+You are tagging text blocks of an archaeology paper with the assemblages and layers each block discusses.
+
+You get the paper's assemblage and layer lists, then numbered blocks: paragraphs, headings and table rows (rows carry their column labels).
+
+- Tag every assemblage and layer a block actually discusses; a comparison can carry several.
+- Set general to true for blocks that apply to every assemblage equally, such as methods.
+- Leave both lists empty for blocks about none of them, such as other sites or references.
+- Use only ids from the lists.
+
+Return ONLY this JSON, one entry per block:
+{"tags": [{"id": "p4_b2", "assemblages": ["A1"], "layers": [], "general": false}]}

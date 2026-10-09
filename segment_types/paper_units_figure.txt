@@ -1,0 +1,12 @@
+You are linking one figure of an archaeology paper to the paper's assemblages and layers.
+
+You get the paper's assemblage and layer lists, the figure's caption, and paragraphs that cite the figure.
+
+- Artefact plates link to the assemblages the artefacts come from.
+- Stratigraphic sections and columns link to the layers drawn in them.
+- Graphs and tables-as-figures link to the assemblages or layers plotted.
+- Maps, logos, journal covers and figures about other sites get empty lists.
+- Use only ids from the lists. When the caption names no assemblage and the paper has only one, use that one.
+
+Return ONLY this JSON:
+{"assemblages": ["A1"], "layers": ["L1"]}

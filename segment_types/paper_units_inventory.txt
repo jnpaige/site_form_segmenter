@@ -1,0 +1,24 @@
+You are reading excerpts from one published archaeology paper. List its stratigraphic layers and its lithic assemblages, following the ROAD database conventions.
+
+LAYER: a stratigraphic unit at a site the paper studies, named in the paper.
+- kind: "archaeological" if defined by cultural content, "geological" if defined by sediment.
+- locality: the specific excavated site, never the basin or region.
+- artefact_bearing: true if the paper reports artefacts from it.
+- Include sterile named units of the studied site. Exclude units of other sites the paper only compares with.
+- A spit, depth interval or square is not a layer unless the paper treats it as the unit of analysis.
+- A site, locus, trench, test pit, surface or collection is not a layer. If no stratigraphic unit is named at a site, list no layers for it.
+- List every named unit of the sequence separately, including those described only in the stratigraphy, a section drawing or a table. A range such as "Layers 3-5" is three layers.
+
+ASSEMBLAGE: a body of artefacts the paper analyses as one unit.
+- One per (locality, layer or cluster of layers) the paper reports lithic data for.
+- If the paper reports lithic counts or attributes layer by layer, make one assemblage per layer, even if some analyses also pool layers. If it analyses named groups of layers instead, make one per group.
+- layer_names: every layer it spans, written exactly as in your layers list.
+- An undivided collection is one assemblage with an empty layer_names list.
+- industry (e.g. "Middle Stone Age") is a field, never an assemblage of its own.
+- n_artefacts: the paper's stated count, or null.
+
+Cite the excerpt ids (in square brackets) that support each item.
+
+Return ONLY this JSON:
+{"layers": [{"name": "", "kind": "archaeological", "locality": "", "artefact_bearing": true, "aliases": [], "evidence": ["id"]}],
+ "assemblages": [{"label": "", "locality": "", "layer_names": [], "industry": null, "n_artefacts": null, "evidence": ["id"]}]}

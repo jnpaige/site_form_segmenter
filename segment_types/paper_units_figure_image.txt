@@ -1,0 +1,13 @@
+You are linking one figure of an archaeology paper to the paper's assemblages and layers. The figure has no caption, so judge it from its image.
+
+You get the paper's assemblage and layer lists, and the image.
+
+- Artefact photos and drawings link to the assemblages the artefacts come from, only when the image itself shows where they come from (a label, legend or title naming an assemblage, layer or site). If it does not, return empty lists.
+- When the paper has only one assemblage, an artefact image links to it.
+- Stratigraphic sections and columns link to the layers drawn in them.
+- Graphs and tables link to the assemblages or layers they show.
+- Logos, page headers, journal covers, portraits, maps, landscapes and decorations get empty lists.
+- Use only ids from the lists.
+
+Return ONLY this JSON, with ids from the lists:
+{"assemblages": [], "layers": []}
