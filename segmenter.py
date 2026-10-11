@@ -96,7 +96,7 @@ def _git_sha() -> str:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, cwd=Path(__file__).parent,
         ).decode().strip()
     except Exception:
         return "nogit"

@@ -169,6 +169,7 @@ USAGE
 """
 
 import argparse
+import functools
 import json
 import random
 import re
@@ -1099,6 +1100,10 @@ def main() -> None:
         if not cfg_path.exists():
             sys.exit(f"Config not found: {cfg_path}")
         cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+
+    # Thinking models (qwen3.x) think unless told not to; the config's `think` decides.
+    global extract_json_vision
+    extract_json_vision = functools.partial(extract_json_vision, think=cfg.get("think"))
 
     pdf_dir_str  = args.pdf_dir    or cfg.get("pdf_dir")
     output_dir   = args.output_dir or cfg.get("output_dir", "runs")

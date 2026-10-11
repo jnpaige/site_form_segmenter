@@ -64,6 +64,7 @@ Usage:
 """
 
 import argparse
+import functools
 import json
 import re
 import shutil
@@ -460,6 +461,10 @@ def main() -> None:
         if not cfg_path.exists():
             sys.exit(f"Config not found: {cfg_path}")
         cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+
+    # Thinking models (qwen3.x) think unless told not to; the config's `think` decides.
+    global extract_json
+    extract_json = functools.partial(extract_json, think=cfg.get("think"))
 
     input_dir_str  = args.input_dir  or cfg.get("input_dir")
     output_dir_str = args.output_dir or cfg.get("output_dir", "runs")

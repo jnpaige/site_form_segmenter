@@ -347,6 +347,9 @@ Output follows the same run-metadata standard as the rest of this repo: `runs/<Y
 
 ## GLO survey field note segmentation
 
+> **GLO configs and prompts moved (2026-10-10)** to `research_repositories/glo_field_notes`, which calls this tool with them. The GLO scripts here still run; pass the project's configs.
+
+
 GLO (General Land Office) survey field-note volumes are a third document shape — 300–430 page manuscript-handwriting volumes, each recording section-line surveys for a dozen or more Township/Range grid cells laid out sequentially (one township's field notes, then the next), further subdivided into individual Sections. Two segmenters produce the identical output schema for this document type; which one to use is a real trade-off, not a strict upgrade path.
 
 ### Why two strategies exist
